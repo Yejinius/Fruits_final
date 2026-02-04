@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(python main.py:*)",
+      "Bash(/Users/ivan/PycharmProjects/Fruits_final/venv/bin/python:*)",
+      "Bash(/Users/ivan/PycharmProjects/Fruits_final/venv/bin/pip install:*)",
+      "Bash(curl:*)"
+    ]
+  }
+}

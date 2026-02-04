@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fruits Final - 시스템 다이어그램</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
+            background: #f5f7fa;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .nav {
+            background: white;
+            padding: 15px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 14px;
+            white-space: nowrap;
+            transition: all 0.3s;
+        }
+
+        .nav a:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .diagram-section {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            scroll-margin-top: 80px;
+        }
+
+        .diagram-section h2 {
+            font-size: 28px;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .diagram-section h3 {
+            font-size: 20px;
+            color: #667eea;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+
+        .description {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            border-left: 4px solid #667eea;
+        }
+
+        .description p {
+            margin-bottom: 10px;
+        }
+
+        .description ul {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+
+        .description li {
+            margin-bottom: 5px;
+        }
+
+        .mermaid {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .code-block {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+
+        .highlight strong {
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🍎 Fruits Final 프로젝트</h1>
+        <p>시스템 아키텍처 & 데이터 플로우 다이어그램</p>
+    </div>
+
+    <div class="nav">
+        <a href="#system">전체 시스템</a>
+        <a href="#crawling">크롤링 플로우</a>
+        <a href="#admin">Admin 테스트</a>
+        <a href="#database">데이터베이스</a>
+        <a href="#mapping">카테고리 매핑</a>
+        <a href="#future1">향후 개선 1</a>
+        <a href="#future2">향후 개선 2</a>
+        <a href="#future3">향후 개선 3</a>
+    </div>
+
+    <div class="container">
+        <section id="system" class="diagram-section">
+            <h2>1. 전체 시스템 구조</h2>
+            <div class="description">
+                <p><strong>시스템 개요:</strong></p>
+                <ul>
+                    <li>External Sites: os79.co.kr (크롤링 소스) 및 admin.open79.co.kr (관리자 사이트)</li>
+                    <li>Crawling System: 상품 데이터 수집 및 파싱</li>
+                    <li>Database: SQLite 기반 데이터 저장소</li>
+                    <li>Frontend: 쇼핑몰 UI 및 데이터 뷰어</li>
+                    <li>Admin Integration: 관리자 사이트 자동화 테스트</li>
+                </ul>
+            </div>
+            <div class="mermaid">
+graph TB
+    subgraph "External Sites"
+        OS79[os79.co.kr<br/>상품 소스 사이트]
+        ADMIN[admin.open79.co.kr<br/>관리자 사이트]
+    end
+
+    subgraph "Crawling System"
+        CRAWLER[Crawler<br/>crawler.py]
+        MAIN[CLI<br/>main.py]
+    end
+
+    subgraph "Database"
+        DB[(SQLite DB<br/>products.db)]
+        IMAGES[/Images Folder/]
+    end
+
+    subgraph "Frontend"
+        MALL[Young Fresh Mall<br/>app.py:5000]
+        VIEWER[Data Viewer<br/>viewer.py:5000]
+    end
+
+    subgraph "Admin Integration"
+        ADMINTEST[Admin Visual Test<br/>admin_visual_test.py:5002]
+    end
+
+    OS79 -->|HTTP GET| CRAWLER
+    CRAWLER -->|파싱 & 저장| DB
+    CRAWLER -->|이미지 다운로드| IMAGES
+    MAIN -->|실행| CRAWLER
+
+    DB -->|상품 데이터| MALL
+    DB -->|상품 데이터| VIEWER
+    DB -->|상품 정보 참조| ADMINTEST
+
+    ADMINTEST -->|HTTP POST<br/>EUC-KR| ADMIN
+
+    style OS79 fill:#e1f5ff
+    style ADMIN fill:#ffe1e1
+    style DB fill:#f0f0f0
+    style CRAWLER fill:#d4edda
+    style ADMINTEST fill:#fff3cd
+            </div>
+        </section>
+
+        <section id="crawling" class="diagram-section">
+            <h2>2. 크롤링 플로우 (상세)</h2>
+            <div class="description">
+                <p><strong>크롤링 프로세스:</strong></p>
+                <ul>
+                    <li>6개 카테고리(A, B, C, D, E, F) 순차 처리</li>
+                    <li>각 카테고리별 상품 목록 조회 → 개별 상품 상세 크롤링</li>
+                    <li>기존 상품이 있으면 업데이트, 없으면 새로 생성 (누적+업데이트 방식)</li>
+                    <li>옵션: 이미지 다운로드 (--no-images 플래그로 생략 가능)</li>
+                </ul>
+            </div>
+            <div class="highlight">
+                <strong>중요:</strong> DB는 삭제되지 않고 누적됩니다. 같은 article_idx는 최신 정보로 갱신됩니다.
+            </div>
+            <div class="mermaid">
+flowchart TD
+    START([python main.py all]) --> INIT[DB 초기화<br/>init_db]
+    INIT --> INITCAT[카테고리 초기화<br/>A, B, C, D, E, F]
+
+    INITCAT --> LOOP1{각 카테고리 반복}
+
+    LOOP1 -->|카테고리 A| LIST1[상품 목록 조회<br/>goods_list.asp?s_article_gubun=A]
+    LIST1 --> PARSE1[HTML 파싱<br/>article_idx 추출]
+
+    PARSE1 --> LOOP2{각 상품 반복}
+
+    LOOP2 -->|article_idx=42092| DETAIL[상품 상세 조회<br/>goods_view.asp?article_idx=42092]
+
+    DETAIL --> EXTRACT[데이터 추출<br/>이름/가격/재고/이미지/옵션]
+
+    EXTRACT --> CHECK{기존 상품<br/>존재?}
+
+    CHECK -->|YES| UPDATE[기존 상품 업데이트<br/>price, stock, updated_at]
+    CHECK -->|NO| INSERT[새 상품 생성<br/>INSERT INTO products]
+
+    UPDATE --> IMG{이미지<br/>다운로드?}
+    INSERT --> IMG
+
+    IMG -->|--no-images| NEXT1
+    IMG -->|YES| DOWNLOAD[이미지 다운로드<br/>data/images/]
+
+    DOWNLOAD --> NEXT1[다음 상품]
+    NEXT1 --> LOOP2
+
+    LOOP2 -->|완료| LOG[CrawlLog 기록<br/>success/fail count]
+    LOG --> LOOP1
+
+    LOOP1 -->|모든 카테고리 완료| END([크롤링 완료<br/>211개 상품])
+
+    style START fill:#d4edda
+    style END fill:#d4edda
+    style CHECK fill:#fff3cd
+    style UPDATE fill:#cfe2ff
+    style INSERT fill:#f8d7da
+            </div>
+        </section>
+
+        <section id="admin" class="diagram-section">
+            <h2>3. Admin 테스트 플로우 (4단계)</h2>
+            <div class="description">
+                <p><strong>자동화 테스트 시나리오:</strong></p>
+                <ul>
+                    <li>Step 1: Admin 사이트 로그인 (REDACTED_ID / REDACTED_PW)</li>
+                    <li>Step 2: 고객 정보 자동 등록 (EUC-KR 인코딩 필수)</li>
+                    <li>Step 2 Result: 등록된 고객 목록 확인</li>
+                    <li>Step 3: 주문서 작성 (카테고리/상품 자동 선택, JavaScript 트리거)</li>
+                    <li>Step 4: 주문 목록 확인</li>
+                </ul>
+            </div>
+            <div class="highlight">
+                <strong>핵심 기술:</strong> HTTP 세션 기반 (Selenium 없음), EUC-KR 인코딩, JavaScript 주입으로 Admin JS 트리거
+            </div>
+            <div class="mermaid">
+sequenceDiagram
+    participant USER as 브라우저<br/>(localhost:5002)
+    participant FLASK as Flask Server<br/>(admin_visual_test.py)
+    participant SESSION as AdminSession<br/>(HTTP Client)
+    participant ADMIN as admin.open79.co.kr
+
+    USER->>FLASK: Step 1 클릭
+    FLASK->>SESSION: login(REDACTED_ID, REDACTED_PW)
+    SESSION->>ADMIN: POST /login_ok.asp<br/>EUC-KR
+    ADMIN-->>SESSION: Set-Cookie: SESSION_ID
+    SESSION-->>FLASK: 로그인 성공
+    FLASK-->>USER: Step 1 완료 표시
+
+    USER->>FLASK: Step 2 클릭 (고객 등록)
+    FLASK->>SESSION: get_page(/order_customer_write.asp)
+    SESSION->>ADMIN: GET 페이지
+    ADMIN-->>SESSION: HTML (EUC-KR)
+    SESSION-->>FLASK: 페이지 내용
+
+    Note over FLASK: 폼 데이터 자동 입력<br/>이름, 주소, 전화번호 등
+
+    FLASK->>SESSION: post_form(데이터)
+
+    Note over SESSION: 한글 → EUC-KR 인코딩<br/>"정예진" → bytes
+
+    SESSION->>ADMIN: POST 폼 제출<br/>EUC-KR encoded
+    ADMIN-->>SESSION: 등록 완료
+    SESSION-->>FLASK: 성공
+    FLASK-->>USER: Step 2 완료 + Result 버튼
+
+    USER->>FLASK: Step 2 Result 클릭
+    FLASK->>SESSION: get_page(/order_customer_list.asp)
+    SESSION->>ADMIN: GET 고객 목록
+    ADMIN-->>SESSION: 고객 목록 HTML
+    SESSION-->>FLASK: HTML
+    FLASK-->>USER: iframe으로 표시
+
+    USER->>FLASK: Step 3 클릭 (주문서 작성)
+    FLASK->>SESSION: get_page(/order_write.asp)
+    SESSION->>ADMIN: GET 페이지
+    ADMIN-->>SESSION: HTML + js_article.asp 로드
+
+    Note over FLASK: JavaScript 삽입<br/>1. 카테고리 선택 (13)<br/>2. 품목 선택 (42092)<br/>3. onchange 트리거<br/>4. Admin JS가 가격/재고 자동입력
+
+    FLASK->>SESSION: post_form(주문 데이터)
+    SESSION->>ADMIN: POST 주문 제출
+    ADMIN-->>SESSION: 주문 완료
+    SESSION-->>FLASK: 성공
+    FLASK-->>USER: Step 3 완료
+
+    USER->>FLASK: Step 4 클릭 (주문 확인)
+    FLASK->>SESSION: get_page(/order_list.asp)
+    SESSION->>ADMIN: GET 주문 목록
+    ADMIN-->>SESSION: 주문 목록 HTML
+    SESSION-->>FLASK: HTML
+    FLASK-->>USER: iframe으로 표시
+            </div>
+        </section>
+
+        <section id="database" class="diagram-section">
+            <h2>4. 데이터베이스 스키마</h2>
+            <div class="description">
+                <p><strong>테이블 구조:</strong></p>
+                <ul>
+                    <li>Category: 카테고리 마스터 (A~F)</li>
+                    <li>Product: 상품 정보 (article_idx가 고유키)</li>
+                    <li>CrawlLog: 크롤링 실행 로그</li>
+                </ul>
+            </div>
+            <div class="mermaid">
+erDiagram
+    Category ||--o{ Product : has
+
+    Category {
+        int id PK
+        string code UK "A, B, C, D, E, F"
+        string name "과일, 고구마 등"
+    }
+
+    Product {
+        int id PK
+        int article_idx UK "os79 상품 ID"
+        string name "상품명"
+        int price "가격"
+        int stock "재고"
+        int delivery_fee "배송비"
+        text description "설명"
+        string main_image_url "메인 이미지 URL"
+        string main_image_local "로컬 이미지 경로"
+        text detail_images "JSON 배열"
+        text detail_content "JSON 배열"
+        text options "JSON 배열"
+        string source_url "os79 원본 URL"
+        int category_id FK
+        datetime crawled_at
+        datetime updated_at
+    }
+
+    CrawlLog {
+        int id PK
+        string category_code "A, B, C..."
+        string status "running/completed/failed"
+        int total_products
+        int success_count
+        int fail_count
+        datetime started_at
+        datetime finished_at
+        text error_message
+    }
+            </div>
+        </section>
+
+        <section id="mapping" class="diagram-section">
+            <h2>5. 카테고리 매핑 문제점</h2>
+            <div class="description">
+                <p><strong>현재 상황:</strong></p>
+                <ul>
+                    <li>우리 DB: A, B, C, D, E, F (알파벳 코드)</li>
+                    <li>Admin 시스템: 5, 6, 13, 14, 15... (숫자 코드)</li>
+                    <li>매핑이 1:1이 아니며, 수동으로 처리 중</li>
+                    <li>js_article.asp에 매핑 정보가 있지만 파싱 미구현</li>
+                </ul>
+            </div>
+            <div class="highlight">
+                <strong>해결 필요:</strong> js_article.asp 파싱하여 article_cate 배열 추출 → DB에 admin_category_idx 저장
+            </div>
+            <div class="mermaid">
+graph LR
+    subgraph "우리 시스템 (DB)"
+        A[A: 과일]
+        B[B: 고구마/야채]
+        C[C: 수산]
+        D[D: 축산]
+        E[E: 쌀/잡곡]
+        F[F: 건어물/기타]
+    end
+
+    subgraph "Admin 시스템"
+        A5[5: 고구마/야채]
+        A6[6: 감/배/포도]
+        A13[13: 참외/귤종류/포도종류/유자]
+        A14[14: ???]
+        A15[15: ???]
+        AMORE[...]
+    end
+
+    subgraph "js_article.asp"
+        JS[전체 상품 데이터<br/>article_idx, cate_idx, price, stock]
+    end
+
+    A -.->|수동 매핑 필요| A6
+    A -.->|수동 매핑 필요| A13
+    B -.->|수동 매핑 필요| A5
+
+    JS -->|파싱 필요<br/>미구현| A5
+    JS -->|파싱 필요<br/>미구현| A6
+    JS -->|파싱 필요<br/>미구현| A13
+
+    style A fill:#d4edda
+    style B fill:#d4edda
+    style A5 fill:#f8d7da
+    style A6 fill:#f8d7da
+    style A13 fill:#f8d7da
+    style JS fill:#fff3cd
+            </div>
+        </section>
+
+        <section id="future1" class="diagram-section">
+            <h2>6. 향후 개선 1: Admin 데이터 동기화</h2>
+            <div class="description">
+                <p><strong>목표:</strong> 크롤링 시 js_article.asp를 파싱하여 Admin 카테고리 정보를 자동으로 DB에 저장</p>
+                <p><strong>장점:</strong></p>
+                <ul>
+                    <li>수동 매핑 불필요</li>
+                    <li>Admin 가격/재고 정보도 함께 수집</li>
+                    <li>데이터 불일치 발생 시 쉽게 추적 가능</li>
+                </ul>
+            </div>
+            <div class="mermaid">
+flowchart TD
+    START([크롤링 시작]) --> FETCH1[os79.co.kr<br/>상품 데이터 수집]
+    FETCH1 --> FETCH2[admin.open79.co.kr<br/>js_article.asp 요청]
+
+    FETCH2 --> PARSE[JavaScript 파싱<br/>article_cate 배열 추출]
+
+    PARSE --> EXTRACT[데이터 추출<br/>article_idx → admin_category_idx]
+
+    EXTRACT --> SAVE[DB 저장<br/>admin_category_idx<br/>admin_price]
+
+    SAVE --> END([자동 매핑 완료])
+
+    style FETCH2 fill:#fff3cd
+    style SAVE fill:#d4edda
+            </div>
+        </section>
+
+        <section id="future2" class="diagram-section">
+            <h2>7. 향후 개선 2: 삭제된 상품 처리</h2>
+            <div class="description">
+                <p><strong>현재 문제:</strong> 사이트에서 삭제된 상품도 DB에 영구 보존됨</p>
+                <p><strong>해결 방안:</strong> is_active 플래그와 last_seen_at 타임스탬프 추가</p>
+            </div>
+            <div class="mermaid">
+graph LR
+    subgraph "1차 크롤링"
+        P1[상품 A]
+        P2[상품 B]
+        P3[상품 C]
+    end
+
+    subgraph "2차 크롤링"
+        P4[상품 A]
+        P5[상품 C]
+        P6[상품 D]
+    end
+
+    subgraph "DB (현재)"
+        DB1[상품 A ✓]
+        DB2[상품 B ✗ 삭제됨]
+        DB3[상품 C ✓]
+        DB4[상품 D ✓ 신규]
+    end
+
+    P1 --> DB1
+    P2 --> DB2
+    P3 --> DB3
+    P6 --> DB4
+
+    style DB2 fill:#f8d7da
+    style DB4 fill:#d4edda
+            </div>
+        </section>
+
+        <section id="future3" class="diagram-section">
+            <h2>8. 향후 개선 3: 실제 주문 연동</h2>
+            <div class="description">
+                <p><strong>목표:</strong> Young Fresh Mall의 실제 주문을 Admin 사이트에 자동 등록</p>
+                <p><strong>프로세스:</strong></p>
+                <ul>
+                    <li>고객이 Young Fresh Mall에서 주문</li>
+                    <li>주문 정보가 DB에 저장 (Order 테이블)</li>
+                    <li>백그라운드 작업이 Admin 사이트에 자동 등록</li>
+                    <li>등록 결과를 DB에 업데이트 (admin_order_id, status)</li>
+                </ul>
+            </div>
+            <div class="mermaid">
+sequenceDiagram
+    participant USER as 고객
+    participant MALL as Young Fresh Mall
+    participant DB as Database
+    participant ADMIN as Admin 자동화
+
+    USER->>MALL: 상품 선택 & 주문
+    MALL->>DB: 주문 정보 저장<br/>(Order 테이블)
+
+    Note over DB: 새 Order 레코드<br/>고객정보 + 상품정보
+
+    DB->>ADMIN: 주문 데이터 전달
+    ADMIN->>ADMIN: 카테고리 매핑<br/>(A → 13)
+    ADMIN->>ADMIN: AdminSession.login()
+    ADMIN->>ADMIN: 고객 등록
+    ADMIN->>ADMIN: 주문서 작성
+
+    ADMIN-->>DB: 처리 결과 업데이트<br/>(admin_order_id, status)
+    DB-->>MALL: 주문 완료
+    MALL-->>USER: 주문 완료 안내
+            </div>
+        </section>
+
+        <div class="diagram-section">
+            <h2>9. 데이터 샘플 예시</h2>
+
+            <h3>크롤링 데이터 (우리 DB)</h3>
+            <div class="code-block">
+{
+  "article_idx": 42092,
+  "name": "제주/보배진/레드향(13과)-3kg내외",
+  "price": 42500,
+  "stock": 36,
+  "delivery_fee": 3000,
+  "category_id": 1,
+  "category_code": "A",
+  "options": [
+    {
+      "value": "42092",
+      "text": "제주/보배진/레드향(13과)-3kg내외"
+    },
+    {
+      "value": "42093",
+      "text": "2박스*제주/보배진/레드향(26과)-6kg내외"
+    }
+  ]
+}
+            </div>
+
+            <h3>Admin 테스트 데이터 (수동 매핑)</h3>
+            <div class="code-block">
+{
+  "category_idx": "13",
+  "article_idx": "42092",
+  "product_name": "2박스*제주/보배진/레드향(26과)-6kg내외",
+  "price": 47000,
+  "delivery_fee": 3000,
+  "total_payment": 56700,
+  "recipient_name": "정예진",
+  "address": "서울특별시 동대문구 서울시립대로 19 청계와이즈노벨리아"
+}
+            </div>
+
+            <h3>js_article.asp 응답 (Admin)</h3>
+            <div class="code-block">
+var article_price = new Array();
+article_price[42092] = "42500";
+var article_stock = new Array();
+article_stock[42092] = "36";
+var article_cate = new Array();
+article_cate[42092] = "13";  // ← 이 매핑이 필요!
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Fruits Final Project - 시스템 다이어그램 뷰어</p>
+        <p>브라우저에서 이 파일을 열어 Mermaid 차트를 시각화합니다</p>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                curve: 'basis',
+                padding: 20
+            },
+            sequence: {
+                mirrorActors: false,
+                messageAlign: 'center'
+            }
+        });
+    </script>
+</body>
+</html>

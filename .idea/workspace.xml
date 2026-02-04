@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="0f9a35e6-a444-486b-aa7c-570a20e4faba" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/../AutoOrder/.idea/pythonProject9.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Auto_Order/.idea/Auto_Order.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Auto_Order2/.idea/Auto_Order2.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Auto_Order3/.idea/Auto_Order3.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Auto_Order3/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Chatgptslackbot/.idea/Chatgptslackbot.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Customer_Segmnt/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Customer_Segmnt/.idea/Customer_Segmnt.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Customer_Segmnt/entitylookup.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Customer_Segmnt/main(properties done).py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Customer_Segmnt/main1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Customer_Segmnt/pycrunchbase_try.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/Fruits_2.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../NaverBand/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../NaverBand/.idea/NaverBand.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../NaverBand/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../NaverBand/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../NaverBand/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../NaverBand/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Psychological_Test_Analytics/.idea/Psychological_Test_Analytics.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/.idea/Rippling_crawler.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../Rippling_crawler/tool_manager.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../balmua/.idea/balmua.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../balmua/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../engagement_analysis/.idea/engagement_analysis.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../engagement_analysis/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../engagement_survey/.idea/engagement_survey.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../fruits/.idea/fruits.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../json2csv/.idea/json2csv.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../langchain/.idea/langchain.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../langchain_ngrok/.idea/langchain_ngrok.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../langchain_ngrok_noVENV/.idea/langchain_ngrok_noVENV.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../langchain_personal/.idea/langchain_personal.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../langchain_request_slack/.idea/langchain_request_slack.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/.idea/lowest_price_hunter.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/2023-11-16_['정관장홍삼원 70ml 60포']_result.xlsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../lowest_price_hunter/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pdfinvoice/.idea/pdfinvoice.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../proxytest/.idea/proxytest.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject/.idea/pythonProject.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject1/.idea/pythonProject1.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject2/.idea/pythonProject2.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject3/.idea/pythonProject3.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject4/.idea/pythonProject4.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject5/.idea/pythonProject5.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject6/.idea/pythonProject6.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../pythonProject9/.idea/pythonProject9.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../recipe/.idea/recipe.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../recipe/env.toml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../recipe/requirements.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../request_test_langchain/.idea/request_test_langchain.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../slacktext/.idea/slacktext.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../slacktext/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../slacktext/2023-11-16_['정관장홍삼원 70ml 60포']_result.xlsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../spendit/.idea/spendit.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../spendit/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../recipe/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/../recipe/main.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectId" id="2TNV6YN9Zf2twWF3juqfT93EPep" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/ivan/PycharmProjects/Fruits_final&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
+  }
+}</component>
+  <component name="PyConsoleOptionsProvider">
+    <option name="myPythonConsoleState">
+      <console-settings>
+        <option name="useSoftWraps" value="true" />
+      </console-settings>
+    </option>
+  </component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="0f9a35e6-a444-486b-aa7c-570a20e4faba" name="Changes" comment="" />
+      <created>1690883350905</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1690883350905</updated>
+    </task>
+    <servers />
+  </component>
+</project>
