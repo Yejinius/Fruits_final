@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(pkill:*)",
-      "Bash(iconv:*)"
+      "Bash(iconv:*)",
+      "WebFetch(domain:jiwoo-choi.github.io)",
+      "Bash(/Users/ivan/PycharmProjects/Fruits_final/venv/bin/python3:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/ivan/.wdm/drivers/chromedriver/mac64/145.0.7632.117"
     ]
   }
 }

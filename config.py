@@ -37,6 +37,16 @@ MAX_RETRIES = 3  # 최대 재시도 횟수
 # User-Agent
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+# 네이버 밴드 설정
+BAND_PREVIEW_URL = "https://band.us/page/101768540"  # 테스트/미리보기용 밴드
+BAND_PRODUCTION_URL = ""                               # 본 밴드 (실제 운영용, 나중에 설정)
+SHOPPING_MALL_URL = "http://localhost:5000"             # 쇼핑몰 링크 (게시물에 포함)
+
+# Aligo SMS 설정 (https://smartsms.aligo.in)
+ALIGO_API_KEY = "REDACTED_API_KEY"  # Aligo API Key
+ALIGO_USER_ID = "REDACTED_USER_ID"                            # Aligo 사용자 ID
+ALIGO_SENDER = "REDACTED_PHONE"                          # 발신 번호
+
 # 요청 헤더
 HEADERS = {
     "User-Agent": USER_AGENT,

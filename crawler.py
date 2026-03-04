@@ -189,8 +189,17 @@ class OS79Crawler:
 
             product['detail_content'] = detail_content
             product['detail_images'] = detail_images
-            # description은 전체 텍스트만 추출
-            product['description'] = detail_section.get_text(separator='\n', strip=True)[:5000]
+            # description: HTML → 텍스트 (원본 줄바꿈/공백 보존)
+            import html as html_mod
+            desc_html = str(detail_section)
+            desc_text = re.sub(r'<img[^>]*/?>', '', desc_html)        # 이미지 제거
+            desc_text = re.sub(r'<br\s*/?>', '\n', desc_text)         # <br> → 줄바꿈
+            desc_text = re.sub(r'</(p|div|li|h[1-6])>', '\n', desc_text)  # 블록 태그 경계
+            desc_text = re.sub(r'<[^>]+>', '', desc_text)             # 나머지 태그 제거
+            desc_text = html_mod.unescape(desc_text)                  # HTML 엔티티 디코드
+            desc_text = '\n'.join(line.strip() for line in desc_text.split('\n'))
+            desc_text = re.sub(r'\n{4,}', '\n\n\n', desc_text)       # 과도한 빈 줄 정리
+            product['description'] = desc_text.strip()[:5000]
 
         # 7. 옵션 정보
         option_select = soup.find('select', id='goods_idx')
@@ -236,6 +245,8 @@ class OS79Crawler:
         if not self.db_session:
             self.db_session = get_session()
 
+        now = datetime.now()
+
         # 기존 상품 확인
         existing = self.db_session.query(Product).filter_by(
             article_idx=product_data['article_idx']
@@ -253,7 +264,9 @@ class OS79Crawler:
             existing.detail_images = json.dumps(product_data.get('detail_images', []), ensure_ascii=False)
             existing.detail_content = json.dumps(product_data.get('detail_content', []), ensure_ascii=False)
             existing.options = json.dumps(product_data.get('options', []), ensure_ascii=False)
-            existing.updated_at = datetime.now()
+            existing.updated_at = now
+            existing.is_active = True
+            existing.last_seen_at = now
             product = existing
         else:
             # 새로 생성
@@ -270,7 +283,9 @@ class OS79Crawler:
                 detail_content=json.dumps(product_data.get('detail_content', []), ensure_ascii=False),
                 options=json.dumps(product_data.get('options', []), ensure_ascii=False),
                 source_url=product_data.get('source_url', ''),
-                category=category
+                category=category,
+                is_active=True,
+                last_seen_at=now
             )
             self.db_session.add(product)
 
@@ -366,6 +381,124 @@ class OS79Crawler:
 
         return results
 
+    def fetch_admin_mapping(self) -> Dict[int, Dict[str, Any]]:
+        """Admin js_article.asp에서 상품 매핑 데이터 가져오기"""
+        print("\n[Admin Sync] Fetching js_article.asp...")
+
+        # Admin 로그인
+        admin_session = requests.Session()
+        admin_session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        admin_session.post(
+            "http://admin.open79.co.kr/m/include/asp/login_ok.asp",
+            data={"m_id": "REDACTED_ID", "m_passwd": "REDACTED_PW"}
+        )
+
+        # js_article.asp 가져오기
+        resp = admin_session.get("http://admin.open79.co.kr/include/js/js_article.asp")
+        content = resp.content.decode('euc-kr', errors='ignore')
+
+        # JavaScript 배열 파싱
+        idx_pattern = r"j_article_idx\[(\d+)\]\s*=\s*'(\d+)'"
+        cate_pattern = r"j_cate_idx\[(\d+)\]\s*=\s*'(\d+)'"
+        price_pattern = r"j_article_price\[(\d+)\]\s*=\s*'(\d+)'"
+        stock_pattern = r"j_article_stock\[(\d+)\]\s*=\s*'(\d+)'"
+        delivery_pattern = r"j_article_delivery\[(\d+)\]\s*=\s*'(\d+)'"
+        sell_d_pattern = r"j_article_sell_d\[(\d+)\]\s*=\s*'(\d+)'"
+        sell_s_pattern = r"j_article_sell_s\[(\d+)\]\s*=\s*'(\d+)'"
+
+        # 인덱스별로 데이터 수집
+        raw_data = {}
+        for pattern, key in [
+            (idx_pattern, 'article_idx'),
+            (cate_pattern, 'cate_idx'),
+            (price_pattern, 'price'),
+            (stock_pattern, 'stock'),
+            (delivery_pattern, 'delivery'),
+            (sell_d_pattern, 'sell_d'),
+            (sell_s_pattern, 'sell_s'),
+        ]:
+            for m in re.finditer(pattern, content):
+                i = int(m.group(1))
+                raw_data.setdefault(i, {})[key] = m.group(2)
+
+        # article_idx 기준으로 변환
+        mappings = {}
+        for item in raw_data.values():
+            if 'article_idx' in item:
+                aid = int(item['article_idx'])
+                mappings[aid] = {
+                    'admin_category_idx': item.get('cate_idx'),
+                    'admin_price': int(item['price']) if 'price' in item else None,
+                    'admin_stock': int(item['stock']) if 'stock' in item else None,
+                    'admin_delivery_fee': int(item['delivery']) if 'delivery' in item else None,
+                }
+
+        admin_session.close()
+        print(f"[Admin Sync] {len(mappings)} products fetched from Admin")
+        return mappings
+
+    def sync_admin_data(self, mappings: Dict[int, Dict[str, Any]]) -> Dict[str, int]:
+        """Admin 매핑 데이터를 DB에 저장 + Admin에 없는 상품 비활성화"""
+        if not self.db_session:
+            self.db_session = get_session()
+
+        synced = 0
+        not_found = 0
+        admin_deactivated = 0
+        now = datetime.now()
+
+        # 1. Admin에 있는 상품 동기화
+        for article_idx, admin_data in mappings.items():
+            product = self.db_session.query(Product).filter_by(
+                article_idx=article_idx
+            ).first()
+
+            if product:
+                product.admin_category_idx = admin_data.get('admin_category_idx')
+                product.admin_price = admin_data.get('admin_price')
+                product.admin_stock = admin_data.get('admin_stock')
+                product.admin_delivery_fee = admin_data.get('admin_delivery_fee')
+                product.admin_synced_at = now
+                synced += 1
+            else:
+                not_found += 1
+
+        # 2. DB에 활성인데 Admin 드롭다운에 없는 상품 → 비활성화
+        admin_article_ids = set(mappings.keys())
+        active_products = self.db_session.query(Product).filter(
+            Product.is_active == True
+        ).all()
+
+        for product in active_products:
+            if product.article_idx not in admin_article_ids:
+                product.is_active = False
+                admin_deactivated += 1
+                print(f"  [Admin] 비활성화: {product.article_idx} - {product.name[:30]}")
+
+        self.db_session.commit()
+        print(f"[Admin Sync] Synced: {synced}, Not in DB: {not_found}, Admin 미발견 비활성화: {admin_deactivated}")
+        return {'synced': synced, 'not_found': not_found, 'admin_deactivated': admin_deactivated}
+
+    def deactivate_missing_products(self, crawl_started_at: datetime) -> Dict[str, int]:
+        """이번 크롤링에서 발견되지 않은 상품을 비활성화"""
+        if not self.db_session:
+            self.db_session = get_session()
+
+        # last_seen_at이 이번 크롤링 시작 시간보다 이전인 활성 상품 = 사라진 상품
+        stale_products = self.db_session.query(Product).filter(
+            Product.is_active == True,
+            (Product.last_seen_at == None) | (Product.last_seen_at < crawl_started_at)
+        ).all()
+
+        deactivated = 0
+        for product in stale_products:
+            product.is_active = False
+            deactivated += 1
+
+        self.db_session.commit()
+        print(f"\n[Deactivate] {deactivated}개 상품 비활성화 (크롤링에서 미발견)")
+        return {'deactivated': deactivated}
+
     def crawl_all(self, download_images: bool = True) -> Dict[str, Dict[str, int]]:
         """모든 카테고리 크롤링"""
         # DB 초기화
@@ -373,7 +506,9 @@ class OS79Crawler:
         self.db_session = get_session()
         self.init_categories()
 
+        crawl_started_at = datetime.now()
         all_results = {}
+
         for code in CATEGORIES.keys():
             print(f"\n{'='*50}")
             print(f"Starting category: {CATEGORIES[code]} ({code})")
@@ -383,6 +518,19 @@ class OS79Crawler:
             all_results[code] = results
 
             print(f"\nCategory {code} completed: {results['success']} success, {results['fail']} fail")
+
+        # 사라진 상품 비활성화
+        deactivate_result = self.deactivate_missing_products(crawl_started_at)
+        all_results['deactivated'] = deactivate_result
+
+        # Admin 데이터 동기화
+        try:
+            admin_mappings = self.fetch_admin_mapping()
+            sync_result = self.sync_admin_data(admin_mappings)
+            all_results['admin_sync'] = sync_result
+        except Exception as e:
+            print(f"[Admin Sync] Failed: {e}")
+            all_results['admin_sync'] = {'error': str(e)}
 
         return all_results
 

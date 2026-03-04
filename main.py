@@ -4,7 +4,7 @@ OS79 크롤러 메인 실행 파일
 import argparse
 from crawler import OS79Crawler
 from models import init_db, get_session, Product, Category
-from config import CATEGORIES
+from config import CATEGORIES, BAND_PREVIEW_URL, BAND_PRODUCTION_URL
 
 
 def show_stats():
@@ -126,6 +126,36 @@ def main():
     # 통계 보기
     subparsers.add_parser('stats', help='현재 DB 통계 보기')
 
+    # 밴드 로그인
+    subparsers.add_parser('band-login', help='네이버 밴드 로그인 (쿠키 저장)')
+
+    # 밴드 포스팅
+    band_post_parser = subparsers.add_parser('band-post', help='밴드에 상품 게시물 올리기')
+    band_post_parser.add_argument('article_idx', type=int, help='상품 ID')
+    band_post_parser.add_argument('--band-url', help='밴드 URL (미지정 시 config.py 사용)')
+
+    # 밴드 카테고리 전체 포스팅
+    band_cat_parser = subparsers.add_parser('band-post-category', help='카테고리 전체 상품 밴드 포스팅')
+    band_cat_parser.add_argument('code', help=f'카테고리 코드 ({", ".join(CATEGORIES.keys())})')
+    band_cat_parser.add_argument('--band-url', help='밴드 URL (미지정 시 config.py 사용)')
+
+    # ── Incremental 밴드 포스팅 ──
+    # 미게시 상품 리스트
+    band_new_parser = subparsers.add_parser('band-new', help='밴드 미게시 상품 리스트')
+    band_new_parser.add_argument('--category', help=f'카테고리 필터 ({", ".join(CATEGORIES.keys())})')
+
+    # 단일 상품 테스트 밴드 미리보기
+    band_preview_parser = subparsers.add_parser('band-preview', help='테스트 밴드에 미리보기 게시')
+    band_preview_parser.add_argument('article_idx', type=int, help='상품 ID')
+
+    # 미게시 전체 테스트 밴드 미리보기
+    band_preview_all_parser = subparsers.add_parser('band-preview-all', help='미게시 전체 상품 테스트 밴드 미리보기')
+    band_preview_all_parser.add_argument('--category', help=f'카테고리 필터 ({", ".join(CATEGORIES.keys())})')
+
+    # 승인 → 본 밴드 게시
+    band_confirm_parser = subparsers.add_parser('band-confirm', help='승인된 상품 본 밴드에 게시')
+    band_confirm_parser.add_argument('article_idx', type=int, help='상품 ID')
+
     args = parser.parse_args()
 
     if args.command == 'all':
@@ -137,6 +167,27 @@ def main():
     elif args.command == 'stats':
         init_db()
         show_stats()
+    elif args.command == 'band-login':
+        from band_poster import band_login
+        band_login()
+    elif args.command == 'band-post':
+        from band_poster import band_post
+        band_post(args.article_idx, band_url=getattr(args, 'band_url', None))
+    elif args.command == 'band-post-category':
+        from band_poster import band_post_category
+        band_post_category(args.code, band_url=getattr(args, 'band_url', None))
+    elif args.command == 'band-new':
+        from band_poster import band_show_new
+        band_show_new(category_code=getattr(args, 'category', None))
+    elif args.command == 'band-preview':
+        from band_poster import band_post_preview
+        band_post_preview(args.article_idx)
+    elif args.command == 'band-preview-all':
+        from band_poster import band_post_preview_all
+        band_post_preview_all(category_code=getattr(args, 'category', None))
+    elif args.command == 'band-confirm':
+        from band_poster import band_post_confirm
+        band_post_confirm(args.article_idx)
     else:
         parser.print_help()
         print("\n카테고리 코드:")

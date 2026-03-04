@@ -2,12 +2,16 @@
 
 ## 프로젝트 개요
 
-**목적**: os79.co.kr 사이트에서 과일/농산물 상품 데이터를 크롤링하고, admin.open79.co.kr 관리자 사이트와 연동하여 고객/주문을 자동 등록하는 시스템
+**목적**: os79.co.kr 사이트에서 과일/농산물 상품 데이터를 크롤링하고, Young Fresh Mall 쇼핑몰을 운영하며, 네이버 밴드 자동 홍보 포스팅 및 admin.open79.co.kr 주문 자동 등록까지 처리하는 통합 시스템
 
-**구성요소**:
-1. **크롤러** - os79.co.kr에서 상품 데이터 수집
-2. **프론트엔드** - Young Fresh Mall 쇼핑몰 UI
-3. **Admin 연동** - admin.open79.co.kr 자동화 테스트
+**핵심 기능**:
+1. **크롤러** - os79.co.kr에서 상품 데이터 수집 + Admin 드롭다운 동기화
+2. **쇼핑몰** - Young Fresh Mall 프론트엔드 (주문/결제)
+3. **밴드 포스팅** - 네이버 밴드 자동 게시물 작성 (Selenium)
+4. **주문 자동화** - Admin 사이트에 고객등록 + 주문등록 자동화
+5. **SMS 알림** - Aligo API 통한 주문/입금 확인 문자 발송
+
+**기술 스택**: Python 3.11, Flask, SQLAlchemy, BeautifulSoup, Selenium, SQLite
 
 ---
 
@@ -20,160 +24,254 @@ graph TB
     subgraph "External Sites"
         OS79[os79.co.kr<br/>상품 소스 사이트]
         ADMIN[admin.open79.co.kr<br/>관리자 사이트]
+        BAND[band.us<br/>네이버 밴드]
+        ALIGO[Aligo SMS API]
     end
 
-    subgraph "Crawling System"
-        CRAWLER[Crawler<br/>crawler.py]
+    subgraph "Crawling & Sync"
+        CRAWLER[OS79Crawler<br/>crawler.py]
         MAIN[CLI<br/>main.py]
     end
 
     subgraph "Database"
         DB[(SQLite DB<br/>products.db)]
-        IMAGES[/Images Folder/]
+        IMAGES[/Images Folder<br/>data/images/]
     end
 
-    subgraph "Frontend"
-        MALL[Young Fresh Mall<br/>app.py:5000]
-        VIEWER[Data Viewer<br/>viewer.py:5000]
+    subgraph "Shopping Mall"
+        MALL[Young Fresh Mall<br/>app.py :5000]
+        ORDER[OrderProcessor<br/>order_processor.py]
+        SMS[SMS Module<br/>sms.py]
     end
 
-    subgraph "Admin Integration"
-        ADMINTEST[Admin Visual Test<br/>admin_visual_test.py:5002]
+    subgraph "Band Posting"
+        POSTER[BandPoster<br/>band_poster.py<br/>Selenium + Chrome]
     end
 
-    OS79 -->|HTTP GET| CRAWLER
+    subgraph "Admin Test UI"
+        ADMINTEST[Admin Visual Test<br/>admin_visual_test.py :5002]
+    end
+
+    OS79 -->|HTTP GET<br/>상품 크롤링| CRAWLER
+    ADMIN -->|js_article.asp<br/>매핑 데이터| CRAWLER
     CRAWLER -->|파싱 & 저장| DB
     CRAWLER -->|이미지 다운로드| IMAGES
     MAIN -->|실행| CRAWLER
+    MAIN -->|실행| POSTER
 
     DB -->|상품 데이터| MALL
-    DB -->|상품 데이터| VIEWER
-    DB -->|상품 정보 참조| ADMINTEST
+    DB -->|상품 데이터| POSTER
+
+    MALL -->|주문 생성| ORDER
+    ORDER -->|자동 등록<br/>EUC-KR| ADMIN
+    MALL -->|주문 SMS| SMS
+    SMS -->|API| ALIGO
+
+    POSTER -->|Selenium<br/>자동 글쓰기| BAND
+    POSTER -->|게시물 URL 저장| DB
 
     ADMINTEST -->|HTTP POST<br/>EUC-KR| ADMIN
 
     style OS79 fill:#e1f5ff
     style ADMIN fill:#ffe1e1
+    style BAND fill:#e8f5e9
     style DB fill:#f0f0f0
     style CRAWLER fill:#d4edda
-    style ADMINTEST fill:#fff3cd
+    style POSTER fill:#fff3cd
+    style MALL fill:#e3f2fd
+    style ORDER fill:#fce4ec
 ```
 
-### 2. 크롤링 플로우 (상세)
+### 2. 크롤링 + 상품 비활성화 플로우
 
 ```mermaid
 flowchart TD
-    START([python main.py all]) --> INIT[DB 초기화<br/>init_db]
-    INIT --> INITCAT[카테고리 초기화<br/>A, B, C, D, E, F]
+    START([python main.py all]) --> INIT[DB 초기화 + 카테고리 초기화]
+    INIT --> RECORD_TIME[크롤링 시작 시간 기록<br/>crawl_started_at]
 
-    INITCAT --> LOOP1{각 카테고리 반복}
+    RECORD_TIME --> LOOP1{각 카테고리<br/>A~F 반복}
 
-    LOOP1 -->|카테고리 A| LIST1[상품 목록 조회<br/>goods_list.asp?s_article_gubun=A]
-    LIST1 --> PARSE1[HTML 파싱<br/>article_idx 추출]
+    LOOP1 -->|카테고리 코드| LIST[상품 목록 조회<br/>goods_list.asp?s_article_gubun=X]
+    LIST --> PARSE[HTML 파싱<br/>article_idx 추출]
 
-    PARSE1 --> LOOP2{각 상품 반복}
+    PARSE --> LOOP2{각 상품 반복}
+    LOOP2 --> DETAIL[상품 상세 조회<br/>goods_view.asp?article_idx=N]
+    DETAIL --> EXTRACT[데이터 추출<br/>이름/가격/재고/설명/이미지/옵션]
 
-    LOOP2 -->|article_idx=42092| DETAIL[상품 상세 조회<br/>goods_view.asp?article_idx=42092]
+    EXTRACT --> CHECK{DB에<br/>기존 상품?}
+    CHECK -->|YES| UPDATE[업데이트<br/>is_active=True<br/>last_seen_at=now]
+    CHECK -->|NO| INSERT[새 상품 생성<br/>is_active=True<br/>last_seen_at=now]
 
-    DETAIL --> EXTRACT[데이터 추출<br/>이름/가격/재고/이미지/옵션]
+    UPDATE --> NEXT[다음 상품]
+    INSERT --> NEXT
+    NEXT --> LOOP2
 
-    EXTRACT --> CHECK{기존 상품<br/>존재?}
+    LOOP2 -->|카테고리 완료| LOOP1
 
-    CHECK -->|YES| UPDATE[기존 상품 업데이트<br/>price, stock, updated_at]
-    CHECK -->|NO| INSERT[새 상품 생성<br/>INSERT INTO products]
+    LOOP1 -->|전체 완료| DEACT1[비활성화 1단계<br/>os79에서 미발견 상품<br/>deactivate_missing_products]
 
-    UPDATE --> IMG{이미지<br/>다운로드?}
-    INSERT --> IMG
+    DEACT1 --> ADMIN_SYNC[Admin 동기화<br/>fetch_admin_mapping]
+    ADMIN_SYNC --> DEACT2[비활성화 2단계<br/>Admin 드롭다운에 없는 상품<br/>sync_admin_data]
 
-    IMG -->|--no-images| NEXT1
-    IMG -->|YES| DOWNLOAD[이미지 다운로드<br/>data/images/]
-
-    DOWNLOAD --> NEXT1[다음 상품]
-    NEXT1 --> LOOP2
-
-    LOOP2 -->|완료| LOG[CrawlLog 기록<br/>success/fail count]
-    LOG --> LOOP1
-
-    LOOP1 -->|모든 카테고리 완료| END([크롤링 완료<br/>211개 상품])
+    DEACT2 --> END([크롤링 완료<br/>비활성 상품 = 쇼핑몰 자동 숨김])
 
     style START fill:#d4edda
     style END fill:#d4edda
-    style CHECK fill:#fff3cd
+    style DEACT1 fill:#f8d7da
+    style DEACT2 fill:#f8d7da
     style UPDATE fill:#cfe2ff
-    style INSERT fill:#f8d7da
+    style INSERT fill:#e8f5e9
 ```
 
-### 3. Admin 테스트 플로우 (4단계)
+### 3. 상품 비활성화 기준 (이중 검증)
+
+```mermaid
+graph TB
+    subgraph "비활성화 조건 (OR)"
+        COND1[조건 1: os79 웹페이지에<br/>상품이 없음<br/>deactivate_missing_products]
+        COND2[조건 2: Admin 드롭다운에<br/>상품이 없음<br/>sync_admin_data]
+    end
+
+    COND1 --> DEACT[is_active = False]
+    COND2 --> DEACT
+
+    DEACT --> EFFECT1[쇼핑몰 메인 목록에서 숨김]
+    DEACT --> EFFECT2[상품 상세 페이지 404]
+    DEACT --> EFFECT3[주문 페이지 접근 차단]
+
+    EFFECT1 --> SAFE[CS 이슈 방지<br/>판매 종료 상품 주문 불가]
+    EFFECT2 --> SAFE
+    EFFECT3 --> SAFE
+
+    style DEACT fill:#f8d7da
+    style SAFE fill:#d4edda
+```
+
+### 4. 밴드 포스팅 플로우
 
 ```mermaid
 sequenceDiagram
-    participant USER as 브라우저<br/>(localhost:5002)
-    participant FLASK as Flask Server<br/>(admin_visual_test.py)
-    participant SESSION as AdminSession<br/>(HTTP Client)
-    participant ADMIN as admin.open79.co.kr
+    participant CLI as main.py CLI
+    participant BP as BandPoster<br/>(Selenium)
+    participant DB as SQLite DB
+    participant CHROME as Chrome<br/>(프로필 세션)
+    participant BAND as band.us
 
-    USER->>FLASK: Step 1 클릭
-    FLASK->>SESSION: login(REDACTED_ID, REDACTED_PW)
-    SESSION->>ADMIN: POST /login_ok.asp<br/>EUC-KR
-    ADMIN-->>SESSION: Set-Cookie: SESSION_ID
-    SESSION-->>FLASK: 로그인 성공
-    FLASK-->>USER: Step 1 완료 표시
+    Note over CLI: 첫 실행 시 로그인 필요
+    CLI->>BP: band-login
+    BP->>CHROME: 브라우저 열기<br/>(Chrome 프로필)
+    CHROME->>BAND: band.us 접속
+    Note over CHROME: 사용자가 수동 로그인<br/>(세션 Chrome 프로필에 저장)
 
-    USER->>FLASK: Step 2 클릭 (고객 등록)
-    FLASK->>SESSION: get_page(/order_customer_write.asp)
-    SESSION->>ADMIN: GET 페이지
-    ADMIN-->>SESSION: HTML (EUC-KR)
-    SESSION-->>FLASK: 페이지 내용
+    Note over CLI: 게시물 작성
+    CLI->>BP: band-post <article_idx>
+    BP->>DB: 상품 정보 조회
+    DB-->>BP: Product 데이터
+    BP->>BP: 홍보 텍스트 생성<br/>(format_product_content)
+    BP->>BP: 이미지 준비<br/>(detail만, main 제외)
 
-    Note over FLASK: 폼 데이터 자동 입력<br/>이름, 주소, 전화번호 등
+    BP->>CHROME: 밴드 페이지 이동
+    CHROME->>BAND: GET band_url
 
-    FLASK->>SESSION: post_form(데이터)
+    BP->>CHROME: 글쓰기 버튼 클릭
+    BP->>CHROME: CKEditor setData<br/>(<p> 태그로 줄바꿈)
+    BP->>CHROME: 이미지 첨부<br/>(input[type=file])
+    BP->>CHROME: 게시 버튼 클릭
 
-    Note over SESSION: 한글 → EUC-KR 인코딩<br/>"정예진" → bytes
-
-    SESSION->>ADMIN: POST 폼 제출<br/>EUC-KR encoded
-    ADMIN-->>SESSION: 등록 완료
-    SESSION-->>FLASK: 성공
-    FLASK-->>USER: Step 2 완료 + Result 버튼
-
-    USER->>FLASK: Step 2 Result 클릭
-    FLASK->>SESSION: get_page(/order_customer_list.asp)
-    SESSION->>ADMIN: GET 고객 목록
-    ADMIN-->>SESSION: 고객 목록 HTML
-    SESSION-->>FLASK: HTML
-    FLASK-->>USER: iframe으로 표시
-
-    USER->>FLASK: Step 3 클릭 (주문서 작성)
-    FLASK->>SESSION: get_page(/order_write.asp)
-    SESSION->>ADMIN: GET 페이지
-    ADMIN-->>SESSION: HTML + js_article.asp 로드
-
-    Note over FLASK: JavaScript 삽입<br/>1. 카테고리 선택 (13)<br/>2. 품목 선택 (42092)<br/>3. onchange 트리거<br/>4. Admin JS가 가격/재고 자동입력
-
-    FLASK->>SESSION: post_form(주문 데이터)
-    SESSION->>ADMIN: POST 주문 제출
-    ADMIN-->>SESSION: 주문 완료
-    SESSION-->>FLASK: 성공
-    FLASK-->>USER: Step 3 완료
-
-    USER->>FLASK: Step 4 클릭 (주문 확인)
-    FLASK->>SESSION: get_page(/order_list.asp)
-    SESSION->>ADMIN: GET 주문 목록
-    ADMIN-->>SESSION: 주문 목록 HTML
-    SESSION-->>FLASK: HTML
-    FLASK-->>USER: iframe으로 표시
+    CHROME->>BAND: 게시물 등록
+    BAND-->>CHROME: 게시 완료 (URL)
+    CHROME-->>BP: current_url 캡처
+    BP-->>CLI: post_url 반환
 ```
 
-### 4. 데이터베이스 스키마
+### 5. Incremental 밴드 포스팅 워크플로우
+
+```mermaid
+flowchart TD
+    subgraph "Phase 1: 크롤링"
+        CRAWL[python main.py all --no-images<br/>전체 상품 크롤링]
+        CRAWL --> DB_UPDATE[DB 업데이트<br/>신규 상품 추가<br/>기존 상품 갱신<br/>사라진 상품 비활성화]
+    end
+
+    subgraph "Phase 2: 신규 상품 확인"
+        CHECK_NEW[python main.py band-new<br/>미게시 상품 조회]
+        CHECK_NEW --> FILTER[필터 조건:<br/>is_active = True<br/>band_posted_at = NULL]
+        FILTER --> LIST[미게시 상품 목록 출력]
+    end
+
+    subgraph "Phase 3: 테스트 밴드 미리보기"
+        PREVIEW[python main.py band-preview article_idx<br/>or band-preview-all]
+        PREVIEW --> TEST_BAND[테스트 밴드에 게시]
+        TEST_BAND --> SAVE_PREVIEW[DB 저장:<br/>band_preview_posted_at<br/>band_preview_url]
+    end
+
+    subgraph "Phase 4: 승인 → 본 밴드 게시"
+        CONFIRM[python main.py band-confirm article_idx]
+        CONFIRM --> PROD_BAND[본 밴드에 게시<br/>BAND_PRODUCTION_URL]
+        PROD_BAND --> SAVE_PROD[DB 저장:<br/>band_posted_at<br/>band_post_url]
+    end
+
+    DB_UPDATE --> CHECK_NEW
+    LIST --> PREVIEW
+    SAVE_PREVIEW -->|텔레그램으로<br/>승인 요청 예정| CONFIRM
+
+    style CRAWL fill:#d4edda
+    style TEST_BAND fill:#fff3cd
+    style PROD_BAND fill:#e3f2fd
+    style SAVE_PROD fill:#d4edda
+```
+
+### 6. 주문 처리 플로우
+
+```mermaid
+sequenceDiagram
+    participant CUST as 고객
+    participant MALL as Young Fresh Mall<br/>(app.py)
+    participant DB as Database
+    participant PROC as AdminOrderProcessor<br/>(order_processor.py)
+    participant ADMIN as admin.open79.co.kr
+    participant SMS as Aligo SMS
+
+    CUST->>MALL: 상품 선택 & 주문 제출
+    MALL->>MALL: is_active 검증<br/>(비활성 상품 차단)
+    MALL->>DB: 주문 생성<br/>(Order + OrderItem)
+    DB-->>MALL: 주문번호 (YF-YYYYMMDD-NNN)
+
+    MALL->>SMS: 주문 접수 SMS 발송
+    SMS-->>CUST: 주문 접수 안내 문자
+
+    MALL->>PROC: process_order(order)
+
+    PROC->>ADMIN: 1. 로그인<br/>POST /login_ok.asp
+    ADMIN-->>PROC: Session Cookie
+
+    PROC->>ADMIN: 2. 고객 등록<br/>POST /p_custom_regist_ok.asp
+    ADMIN-->>PROC: customer_idx
+
+    PROC->>ADMIN: 3. js_article.asp 조회<br/>(sell_d, sell_s, stock 등)
+    ADMIN-->>PROC: 상품별 Admin 데이터
+
+    PROC->>ADMIN: 4. 주문 등록<br/>POST /p_order_regist_ok.asp<br/>(수량 N이면 N회 반복)
+    ADMIN-->>PROC: 등록 완료
+
+    PROC->>DB: 상태 업데이트<br/>status=completed<br/>admin_synced_at=now
+
+    Note over PROC: 실패 시 status=failed<br/>error_message 기록
+```
+
+### 7. 데이터베이스 스키마
 
 ```mermaid
 erDiagram
     Category ||--o{ Product : has
+    Product ||--o{ OrderItem : "ordered as"
+    Order ||--o{ OrderItem : contains
 
     Category {
         int id PK
         string code UK "A, B, C, D, E, F"
         string name "과일, 고구마 등"
+        datetime created_at
     }
 
     Product {
@@ -181,23 +279,69 @@ erDiagram
         int article_idx UK "os79 상품 ID"
         string name "상품명"
         int price "가격"
+        int original_price "할인 전 가격"
+        text description "상세 설명 (줄바꿈 보존)"
+        string origin "원산지"
         int stock "재고"
         int delivery_fee "배송비"
-        text description "설명"
+        boolean is_available "판매 가능 여부"
         string main_image_url "메인 이미지 URL"
         string main_image_local "로컬 이미지 경로"
-        text detail_images "JSON 배열"
-        text detail_content "JSON 배열"
-        text options "JSON 배열"
-        string source_url "os79 원본 URL"
+        text detail_images "JSON 배열 (상세 이미지 URL)"
+        text detail_content "JSON 배열 (텍스트+이미지)"
+        text options "JSON 배열 (옵션 선택지)"
         int category_id FK
+        string source_url "os79 원본 URL"
+        string admin_category_idx "Admin 카테고리 코드"
+        int admin_price "Admin 판매가"
+        int admin_stock "Admin 재고"
+        int admin_delivery_fee "Admin 배송비"
+        datetime admin_synced_at "Admin 동기화 시간"
+        boolean is_active "활성 상태"
+        datetime last_seen_at "마지막 크롤링 발견"
+        datetime band_posted_at "본 밴드 게시 시간"
+        string band_post_url "본 밴드 게시물 URL"
+        datetime band_preview_posted_at "테스트 밴드 미리보기"
+        string band_preview_url "테스트 밴드 URL"
         datetime crawled_at
         datetime updated_at
     }
 
+    Order {
+        int id PK
+        string order_number UK "YF-YYYYMMDD-NNN"
+        string customer_name "받으실 분"
+        string customer_phone "휴대폰"
+        string zipcode "우편번호"
+        string address "기본주소"
+        string address_detail "상세주소"
+        string depositor_name "입금자명"
+        string cash_receipt_no "현금영수증"
+        int total_amount "총 결제금액"
+        text memo "배송 메모"
+        string status "pending/processing/completed/failed"
+        text error_message "실패 시 에러"
+        string admin_customer_idx "Admin 고객 ID"
+        datetime admin_synced_at "Admin 등록 시간"
+        datetime created_at
+        datetime updated_at
+    }
+
+    OrderItem {
+        int id PK
+        int order_id FK
+        int product_id FK
+        int article_idx "상품 ID"
+        string product_name "상품명"
+        int quantity "수량"
+        int price "단가"
+        int delivery_fee "배송비"
+        string admin_category_idx "Admin 카테고리"
+    }
+
     CrawlLog {
         int id PK
-        string category_code "A, B, C..."
+        string category_code "A~F"
         string status "running/completed/failed"
         int total_products
         int success_count
@@ -206,9 +350,18 @@ erDiagram
         datetime finished_at
         text error_message
     }
+
+    ProductImage {
+        int id PK
+        int product_id FK
+        string image_url "원본 URL"
+        string local_path "로컬 경로"
+        string image_type "main/detail"
+        int order "이미지 순서"
+    }
 ```
 
-### 5. 카테고리 매핑 문제점 (현재 수동 처리)
+### 8. 카테고리 매핑 (자동 동기화)
 
 ```mermaid
 graph LR
@@ -221,82 +374,37 @@ graph LR
         F[F: 건어물/기타]
     end
 
-    subgraph "Admin 시스템"
+    subgraph "Admin 시스템 (자동 매핑)"
         A5[5: 고구마/야채]
         A6[6: 감/배/포도]
-        A13[13: 참외/귤종류/포도종류/유자]
-        A14[14: ???]
-        A15[15: ???]
-        AMORE[...]
+        A7[7]
+        A8[8]
+        A10[10]
+        A13[13: 참외/귤/포도/유자]
+        A14[14]
+        A23[23]
     end
 
-    subgraph "js_article.asp"
-        JS[전체 상품 데이터<br/>article_idx, cate_idx, price, stock]
+    subgraph "js_article.asp (자동 파싱)"
+        JS[전체 상품 데이터<br/>article_idx → cate_idx 매핑<br/>price, stock, delivery]
     end
 
-    A -.->|수동 매핑 필요| A6
-    A -.->|수동 매핑 필요| A13
-    B -.->|수동 매핑 필요| A5
+    A -.->|1:N 매핑| A6
+    A -.->|1:N 매핑| A13
+    A -.->|1:N 매핑| A14
+    A -.->|1:N 매핑| A23
+    A -.->|1:N 매핑| A7
+    A -.->|1:N 매핑| A8
+    A -.->|1:N 매핑| A10
+    B -.->|매핑| A5
 
-    JS -->|파싱 필요<br/>미구현| A5
-    JS -->|파싱 필요<br/>미구현| A6
-    JS -->|파싱 필요<br/>미구현| A13
+    JS -->|자동 파싱<br/>crawl_all 시 실행| A5
+    JS -->|자동 파싱| A6
+    JS -->|자동 파싱| A13
 
     style A fill:#d4edda
     style B fill:#d4edda
-    style A5 fill:#f8d7da
-    style A6 fill:#f8d7da
-    style A13 fill:#f8d7da
     style JS fill:#fff3cd
-```
-
-### 6. 데이터 샘플 예시
-
-**크롤링 데이터 (우리 DB)**
-```json
-{
-  "article_idx": 42092,
-  "name": "제주/보배진/레드향(13과)-3kg내외",
-  "price": 42500,
-  "stock": 36,
-  "delivery_fee": 3000,
-  "category_id": 1,
-  "category_code": "A",
-  "options": [
-    {
-      "value": "42092",
-      "text": "제주/보배진/레드향(13과)-3kg내외"
-    },
-    {
-      "value": "42093",
-      "text": "2박스*제주/보배진/레드향(26과)-6kg내외"
-    }
-  ]
-}
-```
-
-**Admin 테스트 데이터 (수동 매핑)**
-```json
-{
-  "category_idx": "13",
-  "article_idx": "42092",
-  "product_name": "2박스*제주/보배진/레드향(26과)-6kg내외",
-  "price": 47000,
-  "delivery_fee": 3000,
-  "total_payment": 56700,
-  "recipient_name": "정예진",
-  "address": "서울특별시 동대문구 서울시립대로 19 청계와이즈노벨리아"
-}
-```
-
-**js_article.asp 응답 (Admin)**
-```javascript
-var article_price = new Array();
-article_price[42092] = "42500";
-var article_stock = new Array();
-article_stock[42092] = "36";
-var article_cate = new Array();
-article_cate[42092] = "13";  // ← 이 매핑이 필요!
 ```
 
 ---
@@ -305,18 +413,23 @@ article_cate[42092] = "13";  // ← 이 매핑이 필요!
 
 ```
 Fruits_final/
-├── config.py              # 설정 파일 (URL, 카테고리 등)
-├── models.py              # SQLAlchemy DB 모델
-├── crawler.py             # 크롤러 핵심 로직
-├── main.py                # CLI 진입점
-├── app.py                 # Young Fresh Mall 프론트엔드 (포트 5000)
+├── config.py              # 설정 (URL, 카테고리, 밴드 URL, SMS 키)
+├── models.py              # SQLAlchemy 모델 (Category, Product, Order, OrderItem, CrawlLog)
+├── crawler.py             # 크롤러 + Admin 동기화 + 상품 비활성화
+├── main.py                # CLI 진입점 (크롤링, 밴드, 통계)
+├── app.py                 # Young Fresh Mall 쇼핑몰 (포트 5000)
+├── band_poster.py         # 네이버 밴드 자동 포스팅 (Selenium)
+├── order_processor.py     # Admin 주문 자동 등록
+├── sms.py                 # Aligo SMS 발송 모듈
 ├── viewer.py              # 크롤링 데이터 뷰어 (포트 5000)
 ├── admin_visual_test.py   # Admin 시각적 테스트 (포트 5002)
 ├── admin_test.py          # Admin HTTP 테스트 (CLI)
-├── admin_test_web.py      # Admin 웹 테스트 (초기 버전)
+├── admin_test_web.py      # Admin 웹 테스트 (초기)
+├── DIAGRAMS_VIEWER.html   # Mermaid 차트 브라우저 뷰어
 └── data/
     ├── products.db        # SQLite 데이터베이스
-    └── images/            # 다운로드된 이미지
+    ├── images/            # 상품 이미지
+    └── chrome_profile/    # Chrome 프로필 (밴드 로그인 세션)
 ```
 
 ---
@@ -330,7 +443,7 @@ GOODS_LIST_URL = f"{BASE_URL}/board_order/goods_list.asp"
 GOODS_VIEW_URL = f"{BASE_URL}/board_order/goods_view.asp"
 ```
 
-### 카테고리 코드 (우리 시스템)
+### 카테고리 코드
 ```python
 CATEGORIES = {
     "A": "과일",
@@ -342,626 +455,347 @@ CATEGORIES = {
 }
 ```
 
-> **중요**: Admin 사이트는 다른 카테고리 코드를 사용함
-> - Admin "5" = 고구마/야채
-> - Admin "6" = 감/배/포도
-> - Admin "13" = 참외/귤종류/포도종류/유자
-> - 등등 (js_article.asp에서 확인 가능)
+### 밴드 설정
+```python
+BAND_PREVIEW_URL = "https://band.us/page/101768540"  # 테스트/미리보기용 밴드
+BAND_PRODUCTION_URL = ""                               # 본 밴드 (실제 운영용, 나중에 설정)
+SHOPPING_MALL_URL = "http://localhost:5000"             # 쇼핑몰 링크 (게시물에 포함)
+```
 
-### 기타 설정
+### SMS 설정
+```python
+ALIGO_API_KEY = ""       # Aligo API Key
+ALIGO_USER_ID = ""       # Aligo 사용자 ID
+ALIGO_SENDER = ""        # 발신 번호 (사전 등록 필요)
+```
+
+### 기타
 - `REQUEST_DELAY`: 1.0초 (요청 간 대기)
 - `REQUEST_TIMEOUT`: 30초
 - `MAX_RETRIES`: 3회
-- `DB_PATH`: data/products.db
 
 ---
 
-## 2. 데이터베이스 모델 (models.py)
+## 2. 크롤러 (crawler.py)
 
-### Category 테이블
-```python
-class Category(Base):
-    __tablename__ = "categories"
-    id = Column(Integer, primary_key=True)
-    code = Column(String(10), unique=True)  # A, B, C, D, E, F
-    name = Column(String(100))              # 과일, 고구마 등
-```
+### OS79Crawler 클래스
 
-### Product 테이블
-```python
-class Product(Base):
-    __tablename__ = "products"
+#### `crawl_all(download_images=True)`
+전체 크롤링 + 비활성화 + Admin 동기화를 한 번에 실행:
 
-    # 기본 키
-    id = Column(Integer, primary_key=True)
-    article_idx = Column(Integer, unique=True)  # os79 사이트 상품 ID
-
-    # 상품 정보
-    name = Column(String(500))
-    price = Column(Integer, default=0)
-    original_price = Column(Integer, default=0)
-    description = Column(Text)
-    stock = Column(Integer, default=0)
-    delivery_fee = Column(Integer, default=0)
-
-    # 이미지
-    main_image_url = Column(String(1000))   # 원본 URL
-    main_image_local = Column(String(500))  # 로컬 경로
-    detail_images = Column(Text)            # JSON 배열
-    detail_content = Column(Text)           # JSON 배열 (텍스트+이미지 순서 유지)
-
-    # 옵션
-    options = Column(Text)  # JSON 배열: [{"value": "42092", "text": "2박스*..."}]
-
-    # 메타
-    source_url = Column(String(1000))
-    category_id = Column(Integer, ForeignKey("categories.id"))
-    crawled_at = Column(DateTime)
-    updated_at = Column(DateTime)
-```
-
-### CrawlLog 테이블
-크롤링 실행 기록 (성공/실패 카운트, 상태 등)
-
----
-
-## 3. 크롤러 (crawler.py)
-
-### 주요 메서드
-
-#### `get_product_list(category_code)`
-카테고리별 상품 목록 조회
-- URL: `goods_list.asp?s_article_gubun=A`
-- 반환: `[{article_idx, name_preview, url}, ...]`
+1. DB 초기화 + 카테고리 초기화
+2. `crawl_started_at` 기록
+3. 각 카테고리(A~F) 순회 → `crawl_category()` 호출
+4. **비활성화 1단계**: `deactivate_missing_products(crawl_started_at)` — os79 페이지에서 사라진 상품
+5. **비활성화 2단계**: `fetch_admin_mapping()` → `sync_admin_data()` — Admin 드롭다운에서 사라진 상품
 
 #### `get_product_detail(article_idx)`
-개별 상품 상세 정보 크롤링
-- URL: `goods_view.asp?article_idx=42092`
-- 파싱 항목:
-  - `#txt_article_name` → 상품명
-  - `#txt_article_price` → 가격
-  - `.viewImg` style background → 메인 이미지
-  - `#article_stock` → 재고
-  - `#txt_article_delivery` → 배송비
-  - `.vw_content` → 상세 콘텐츠
-  - `#goods_idx` select → 옵션
+상품 상세 정보 크롤링:
+- 상품명: `#txt_article_name`
+- 가격: `#txt_article_price`
+- 메인 이미지: `.viewImg` background-image
+- 재고: `#article_stock`
+- 배송비: `#txt_article_delivery`
+- 설명: `.vw_content` → **HTML→텍스트 변환 (줄바꿈 보존)**
+- 옵션: `#goods_idx` select
 
-#### `save_product(product_data, category)`
-**DB 저장 로직 (중요!)**
+#### 설명 텍스트 추출 (줄바꿈 보존)
 ```python
-existing = self.db_session.query(Product).filter_by(
-    article_idx=product_data['article_idx']
-).first()
-
-if existing:
-    # 기존 상품 업데이트
-    existing.name = product_data.get('name', existing.name)
-    existing.price = ...
-    existing.updated_at = datetime.now()
-else:
-    # 새 상품 생성
-    product = Product(...)
-    self.db_session.add(product)
+# HTML → 텍스트 변환 (원본 줄바꿈/공백 보존)
+desc_html = str(detail_section)
+desc_text = re.sub(r'<img[^>]*/?>', '', desc_html)        # 이미지 제거
+desc_text = re.sub(r'<br\s*/?>', '\n', desc_text)         # <br> → 줄바꿈
+desc_text = re.sub(r'</(p|div|li|h[1-6])>', '\n', desc_text)  # 블록 태그 경계
+desc_text = re.sub(r'<[^>]+>', '', desc_text)             # 나머지 태그 제거
+desc_text = html.unescape(desc_text)                      # HTML 엔티티 디코드
+desc_text = '\n'.join(line.strip() for line in desc_text.split('\n'))
+desc_text = re.sub(r'\n{4,}', '\n\n\n', desc_text)       # 과도한 빈 줄 정리
 ```
 
-> **DB 동작**: 누적 + 업데이트 구조
-> - 기존 데이터를 지우지 않음
-> - 같은 article_idx면 최신 정보로 갱신
-> - 새 상품은 추가
-> - 삭제된 상품은 DB에 남아있음 (자동 삭제 안 됨)
+#### `save_product(product_data, category)`
+**누적+업데이트 구조**:
+- `article_idx` 기준으로 기존 상품 확인
+- 있으면 → 업데이트 (`is_active=True`, `last_seen_at=now`)
+- 없으면 → 새로 생성
+- 삭제는 하지 않음 (비활성화만)
 
-### 크롤링 실행
+#### `deactivate_missing_products(crawl_started_at)`
+os79 웹페이지에서 사라진 상품 비활성화:
+- `last_seen_at < crawl_started_at` 인 활성 상품 → `is_active = False`
 
+#### `fetch_admin_mapping()` → `sync_admin_data(mappings)`
+Admin 드롭다운 기반 동기화:
+1. Admin 로그인 → `js_article.asp` 파싱 (EUC-KR)
+2. JavaScript 배열에서 `j_article_idx`, `j_cate_idx`, `j_article_price`, `j_article_stock`, `j_article_delivery` 추출
+3. DB 상품에 `admin_category_idx`, `admin_price`, `admin_stock`, `admin_delivery_fee` 업데이트
+4. **DB에 활성인데 Admin에 없는 상품 → `is_active = False`**
+
+---
+
+## 3. 밴드 포스팅 (band_poster.py)
+
+### BandPoster 클래스
+
+**Selenium 기반 자동 글쓰기**:
+- Chrome 프로필 디렉토리(`data/chrome_profile/`)로 로그인 세션 유지
+- 한 번 `band-login`으로 수동 로그인하면 이후 자동
+
+#### 게시물 작성 과정
+1. Chrome 프로필로 브라우저 초기화
+2. 밴드 페이지 이동
+3. `button._btnWritePost` 클릭 → 글쓰기 레이어 열기
+4. **CKEditor `setData()` API**로 텍스트 입력 (각 줄을 `<p>` 태그로 감싸서 줄바꿈 처리)
+5. `input[name='attachment'][accept='image/*']`에 이미지 파일 경로 전달
+6. "첨부하기" 버튼 클릭
+7. `button._btnSubmitPost` 클릭 → 게시
+8. **`driver.current_url` 캡처 → 게시물 URL 반환**
+
+#### 이미지 처리
+- **main 이미지 제외** (detail 첫 장과 동일하므로 중복 방지)
+- detail 이미지만 업로드
+- 로컬에 없으면 URL에서 자동 다운로드
+
+#### 카카오 오픈채팅 URL 교체
+게시물 작성 시 상품 설명의 카카오 URL 자동 교체:
+- `https://open.kakao.com/o/gF7nJ96h` → `https://open.kakao.com/o/sNgjJoBb`
+
+### Incremental 포스팅 함수
+
+#### `get_unposted_products(category_code=None)`
+미게시 활성 상품 조회:
+```python
+Product.is_active == True AND Product.band_posted_at == None
+```
+
+#### `band_show_new(category_code=None)`
+미게시 상품 리스트 출력 (카테고리 필터 가능)
+
+#### `band_post_preview(article_idx)`
+테스트 밴드(`BAND_PREVIEW_URL`)에 미리보기 게시:
+- 게시 성공 시 `band_preview_posted_at`, `band_preview_url` DB 저장
+
+#### `band_post_preview_all(category_code=None)`
+미게시 전체 상품을 테스트 밴드에 일괄 미리보기 게시
+
+#### `band_post_confirm(article_idx)`
+승인된 상품을 본 밴드(`BAND_PRODUCTION_URL`)에 게시:
+- 게시 성공 시 `band_posted_at`, `band_post_url` DB 저장
+
+---
+
+## 4. 쇼핑몰 (app.py)
+
+### Young Fresh Mall - 포트 5000
+
+**주요 라우트**:
+
+| 경로 | 설명 |
+|------|------|
+| `/` | 메인 페이지 (전체 상품) |
+| `/category/<code>` | 카테고리별 상품 |
+| `/search?q=` | 상품 검색 |
+| `/product/<article_idx>` | 상품 상세 |
+| `/order/<article_idx>` | 주문 페이지 |
+| `/order/submit` | 주문 제출 (POST) |
+
+### is_active 필터 (핵심 안전장치)
+
+모든 상품 조회에 `is_active` 필터 적용:
+
+- **메인 목록**: `Product.is_active == True` 필터
+- **검색**: `Product.is_active == True` 필터
+- **상품 상세**: `not product.is_active` → 404
+- **주문 페이지**: `not product.is_active` → "판매 종료된 상품입니다." 404
+
+> **중요**: 비활성 상품은 쇼핑몰 어디에서도 접근 불가. 판매 종료/재고 없는 상품 주문 차단.
+
+---
+
+## 5. 주문 자동화 (order_processor.py)
+
+### AdminOrderProcessor 클래스
+
+Young Fresh Mall 주문 → Admin 사이트 자동 등록:
+
+1. **로그인**: `POST /m/include/asp/login_ok.asp` (REDACTED_ID/REDACTED_PW)
+2. **고객 등록**: `POST /m/customer/p_custom_regist_ok.asp` → `customer_idx` 확보
+3. **상품 데이터 조회**: `js_article.asp`에서 `sell_d`, `sell_s`, `stock` 등 가져오기
+4. **주문 등록**: `POST /m/customer/p_order_regist_ok.asp`
+   - 수량 N이면 동일 고객에게 N회 반복 등록 (Admin 건별 등록 방식)
+
+### 폼 데이터 인코딩
+- Admin 사이트는 **EUC-KR** 사용
+- `[]` 를 인코딩하지 않는 raw body 방식 (`urllib.parse.quote`로 직접 인코딩)
+
+### 주문번호 체계
+`YF-YYYYMMDD-NNN` (예: YF-20260303-001)
+
+### 주문 상태
+`pending` → `processing` → `completed` (또는 `failed`)
+
+---
+
+## 6. SMS 알림 (sms.py)
+
+### Aligo SMS
+
+- **주문 접수 SMS**: 주문 생성 시 고객에게 발송
+- **입금 확인 SMS**: 입금 확인 시 고객에게 발송
+- 메시지 길이에 따라 SMS/LMS 자동 결정 (90바이트 기준)
+- API 키 미설정 시 발송 건너뜀 (에러 없음)
+
+---
+
+## 7. Admin 테스트 UI (admin_visual_test.py)
+
+포트 5002에서 Admin 사이트 연동 테스트:
+
+```
+Step 1: 로그인
+Step 2: 고객 등록 → 결과 확인 (iframe)
+Step 3: 주문서 작성 → JavaScript로 품목 자동 선택
+Step 4: 주문 목록 확인 (iframe)
+```
+
+---
+
+## 8. CLI 명령어 (main.py)
+
+### 크롤링
 ```bash
-# 전체 크롤링
-python main.py all
-
-# 이미지 없이 전체 크롤링
+# 전체 크롤링 (이미지 제외)
 python main.py all --no-images
 
 # 특정 카테고리만
 python main.py category A
 
 # 단일 상품 테스트
-python main.py single 42092
+python main.py single 42563
 
 # DB 통계
 python main.py stats
 ```
 
----
-
-## 4. 프론트엔드
-
-### Young Fresh Mall (app.py) - 포트 5000
-
-실제 쇼핑몰 UI
-- 메인 페이지: 전체/카테고리별 상품 그리드
-- 상세 페이지: 상품 정보, 옵션 선택, 구매 버튼
-
+### 밴드 포스팅
 ```bash
-python app.py
-# http://127.0.0.1:5000
+# 밴드 로그인 (최초 1회)
+python main.py band-login
+
+# 단일 상품 포스팅 (테스트 밴드)
+python main.py band-post 40474
+
+# 카테고리 전체 포스팅
+python main.py band-post-category A
 ```
 
-### 데이터 뷰어 (viewer.py) - 포트 5000
-
-크롤링 데이터 품질 확인용
-- 데이터 품질 통계 (이미지율, 가격율 등)
-- 각 상품별 수집 상태 표시
-
+### Incremental 밴드 포스팅
 ```bash
-python viewer.py
-# http://127.0.0.1:5000
+# 미게시 상품 리스트
+python main.py band-new
+python main.py band-new --category A
+
+# 테스트 밴드 미리보기
+python main.py band-preview 40474
+python main.py band-preview-all
+python main.py band-preview-all --category A
+
+# 승인 → 본 밴드 게시
+python main.py band-confirm 40474
 ```
 
----
-
-## 5. Admin 사이트 연동 (admin_visual_test.py)
-
-### 개요
-- 대상: http://admin.open79.co.kr
-- 방식: HTTP Request (Selenium 아님)
-- 포트: 5002
-
-### 테스트 플로우
-
-```
-Step 1: 로그인
-    ↓
-Step 2: 고객 등록 (폼 자동 입력)
-    ↓
-Step 2 Result: 고객 목록에서 확인
-    ↓
-Step 3: 주문서 작성 (폼 자동 입력)
-    ↓
-Step 4: 주문 목록에서 확인
-```
-
-### AdminSession 클래스
-
-```python
-class AdminSession:
-    BASE_URL = "http://admin.open79.co.kr"
-
-    def login(self, user_id, password):
-        # POST /m/include/asp/login_ok.asp
-
-    def get_page(self, path):
-        # GET 요청, EUC-KR 디코딩
-
-    def post_form(self, path, data):
-        # POST 요청, EUC-KR 인코딩 (중요!)
-        encoded_data = {}
-        for key, value in data.items():
-            if isinstance(value, str):
-                encoded_data[key] = value.encode('euc-kr', errors='ignore')
-            else:
-                encoded_data[key] = value
-```
-
-### 테스트 데이터 (SAMPLE_ORDER_DATA)
-
-```python
-SAMPLE_ORDER_DATA = {
-    "depositor_name": "정예진",           # 입금자
-    "recipient_name": "정예진",           # 받는 사람
-    "phone": "REDACTED_PHONE",
-    "zipcode": "02504",
-    "address": "서울특별시 동대문구 서울시립대로 19 청계와이즈노벨리아",
-    "address_detail": "101동 1002호",
-    "cash_receipt_no": "REDACTED_PHONE",
-    "memo": "부재시 경비실에 맡겨주세요",
-
-    # Admin 상품 정보 (중요!)
-    "product_name": "2박스*제주/보배진/레드향(26과)-6kg내외",
-    "category_idx": "13",     # Admin 카테고리 코드 (우리 코드와 다름!)
-    "article_idx": "42092",   # Admin 상품 ID
-    "price": 47000,
-    "delivery_fee": 3000,
-    "total_payment": 56700,   # 고객 입금액
-    "quantity": 1
-}
-```
-
-### 주요 포인트
-
-#### 1. EUC-KR 인코딩
-Admin 사이트는 EUC-KR 인코딩 사용. 한글 폼 데이터 전송 시 반드시 인코딩 필요.
-
-#### 2. 카테고리/상품 매핑
-- 우리 DB 카테고리: A, B, C, D, E, F
-- Admin 카테고리: 5, 6, 13, ... (숫자)
-- **현재 수동 매핑 중** - 향후 자동화 필요
-
-#### 3. 품목 자동 선택
-Admin의 js_article.asp가 상품 드롭다운에 데이터 제공.
-JavaScript로 자동 선택 후 onchange 이벤트 트리거:
-```javascript
-var articleSelect = document.querySelector('select[name="g_article_idx[]"]');
-articleSelect.selectedIndex = i;
-var event = new Event('change', { bubbles: true });
-articleSelect.dispatchEvent(event);
-```
-
-#### 4. 가격 자동 입력
-Admin JS가 상품 선택 시 가격/재고 자동 입력.
-우리는 이 값을 그대로 사용 (오버라이드 안 함).
-단, `total_payment` 필드로 고객 입금액은 별도 지정 가능.
-
-### 실행
-
+### 참고
 ```bash
-python admin_visual_test.py
-# http://127.0.0.1:5002
+# venv activate 대신 직접 경로 사용 (permission 문제)
+/Users/ivan/PycharmProjects/Fruits_final/venv/bin/python main.py all --no-images
 ```
 
 ---
 
-## 6. 향후 개선 사항
+## 9. 트러블슈팅
 
-### 1. Admin 데이터 동기화 (미구현)
-
-**목표**: 크롤링 시 js_article.asp 파싱하여 Admin 정보 자동 수집
-
-```mermaid
-flowchart TD
-    START([크롤링 시작]) --> FETCH1[os79.co.kr<br/>상품 데이터 수집]
-    FETCH1 --> FETCH2[admin.open79.co.kr<br/>js_article.asp 요청]
-
-    FETCH2 --> PARSE[JavaScript 파싱<br/>article_cate 배열 추출]
-
-    PARSE --> EXTRACT[데이터 추출<br/>article_idx → admin_category_idx]
-
-    EXTRACT --> SAVE[DB 저장<br/>admin_category_idx<br/>admin_price]
-
-    SAVE --> END([자동 매핑 완료])
-
-    style FETCH2 fill:#fff3cd
-    style SAVE fill:#d4edda
-```
-
-**필요한 코드 변경**:
-
-Product 모델 확장:
-```python
-class Product(Base):
-    # 기존 필드...
-
-    # 추가 필드
-    admin_category_idx = Column(String(10))  # Admin 카테고리 코드
-    admin_article_idx = Column(Integer)       # Admin 상품 ID (동일할 가능성 높음)
-    admin_price = Column(Integer)             # Admin 가격
-    admin_stock = Column(Integer)             # Admin 재고
-    admin_synced = Column(Boolean, default=False)  # 동기화 여부
-    admin_synced_at = Column(DateTime)        # 동기화 시간
-```
-
-crawler.py 추가 메서드:
-```python
-def fetch_admin_mapping(self):
-    """Admin js_article.asp에서 매핑 데이터 가져오기"""
-    url = "http://admin.open79.co.kr/m/include/js_article.asp"
-    response = requests.get(url)
-
-    # JavaScript 파싱
-    # var article_cate = new Array();
-    # article_cate[42092] = "13";
-    cate_pattern = r'article_cate\[(\d+)\]\s*=\s*"(\d+)"'
-    price_pattern = r'article_price\[(\d+)\]\s*=\s*"(\d+)"'
-
-    mappings = {}
-    for match in re.finditer(cate_pattern, response.text):
-        article_idx = int(match.group(1))
-        category_idx = match.group(2)
-        if article_idx not in mappings:
-            mappings[article_idx] = {}
-        mappings[article_idx]['admin_category_idx'] = category_idx
-
-    return mappings
-```
-
-### 2. 삭제된 상품 처리
-
-**현재 문제**: DB는 삭제된 상품도 영구 보존
-
-```mermaid
-graph LR
-    subgraph "1차 크롤링"
-        P1[상품 A]
-        P2[상품 B]
-        P3[상품 C]
-    end
-
-    subgraph "2차 크롤링"
-        P4[상품 A]
-        P5[상품 C]
-        P6[상품 D]
-    end
-
-    subgraph "DB (현재)"
-        DB1[상품 A ✓]
-        DB2[상품 B ✗ 삭제됨]
-        DB3[상품 C ✓]
-        DB4[상품 D ✓ 신규]
-    end
-
-    P1 --> DB1
-    P2 --> DB2
-    P3 --> DB3
-    P6 --> DB4
-
-    style DB2 fill:#f8d7da
-    style DB4 fill:#d4edda
-```
-
-**해결 방안**:
-
-```python
-class Product(Base):
-    # 추가 필드
-    is_active = Column(Boolean, default=True)  # 활성 상태
-    last_seen_at = Column(DateTime)  # 마지막 크롤링 확인 시간
-
-# 크롤링 로직 수정
-def crawl_category(self, category_code):
-    # 1. 크롤링 시작 전: 모든 상품 is_active = False
-    existing_products = self.db_session.query(Product).filter_by(category_id=category.id).all()
-    for p in existing_products:
-        p.is_active = False
-
-    # 2. 크롤링 중: 발견된 상품만 is_active = True
-    product = self.save_product(product_data, category)
-    product.is_active = True
-    product.last_seen_at = datetime.now()
-
-    # 3. 크롤링 완료 후: is_active = False인 상품은 삭제됨
-```
-
-### 3. 실제 주문 연동
-
-**목표**: 테스트 데이터 → 실제 Young Fresh Mall 주문 데이터 연동
-
-```mermaid
-sequenceDiagram
-    participant USER as 고객
-    participant MALL as Young Fresh Mall
-    participant DB as Database
-    participant ADMIN as Admin 자동화
-
-    USER->>MALL: 상품 선택 & 주문
-    MALL->>DB: 주문 정보 저장<br/>(Order 테이블)
-
-    Note over DB: 새 Order 레코드<br/>고객정보 + 상품정보
-
-    DB->>ADMIN: 주문 데이터 전달
-    ADMIN->>ADMIN: 카테고리 매핑<br/>(A → 13)
-    ADMIN->>ADMIN: AdminSession.login()
-    ADMIN->>ADMIN: 고객 등록
-    ADMIN->>ADMIN: 주문서 작성
-
-    ADMIN-->>DB: 처리 결과 업데이트<br/>(admin_order_id, status)
-    DB-->>MALL: 주문 완료
-    MALL-->>USER: 주문 완료 안내
-```
-
-**필요한 추가 모델**:
-
-```python
-class Order(Base):
-    __tablename__ = "orders"
-
-    id = Column(Integer, primary_key=True)
-    order_number = Column(String(50), unique=True)
-
-    # 고객 정보
-    customer_name = Column(String(100))
-    customer_phone = Column(String(20))
-    customer_address = Column(String(500))
-
-    # 상품 정보
-    product_id = Column(Integer, ForeignKey("products.id"))
-    product_option = Column(String(500))
-    quantity = Column(Integer)
-    price = Column(Integer)
-    total_amount = Column(Integer)
-
-    # Admin 연동
-    admin_order_id = Column(Integer)  # Admin에 등록된 주문 ID
-    admin_status = Column(String(20))  # pending/registered/failed
-    admin_registered_at = Column(DateTime)
-
-    created_at = Column(DateTime, default=datetime.now)
-```
-
----
-
-## 7. 트러블슈팅
-
-### 한글 깨짐 문제
+### EUC-KR 인코딩
 - **원인**: Admin 사이트가 EUC-KR 사용
-- **해결**: `post_form()`에서 데이터를 EUC-KR로 인코딩
+- **해결**: `post_form()`에서 데이터를 EUC-KR로 인코딩, `[]`는 raw body로 처리
 
-### 품목 선택 안 됨
-- **원인**: 카테고리 선택 후 onchange로 품목 로드됨
-- **해결**: JavaScript로 카테고리 선택 → 품목 선택 → onchange 트리거
+### 설명 텍스트 줄바꿈 손실
+- **원인**: `get_text(strip=True)`가 모든 공백/줄바꿈 제거
+- **해결**: Regex 기반 HTML→텍스트 변환 (`<br>` → `\n`, 블록태그 경계 → `\n`)
 
-### 가격 불일치
-- **원인**: Admin JS가 자동 입력한 값과 우리 데이터 다름
-- **해결**: Admin 값 그대로 사용, `total_payment`로 입금액만 별도 지정
+### 밴드 이미지 중복
+- **원인**: main 이미지 = detail 첫 장 (동일 파일)
+- **해결**: `_get_product_images()`에서 main 제외, detail만 업로드
+
+### DetachedInstanceError
+- **원인**: SQLAlchemy 세션 닫은 후 lazy-loaded 관계 접근
+- **해결**: `joinedload(Product.category)` + 세션 닫기 전 미리 로드
+
+### venv activate Permission Denied
+- **해결**: `venv/bin/python` 직접 경로 사용
 
 ---
 
-## 8. 로그인 정보
+## 10. 로그인 정보
 
 ### Admin 사이트
 - URL: http://admin.open79.co.kr
 - ID: REDACTED_ID
 - PW: REDACTED_PW
 
----
-
-## 9. 자주 사용하는 명령어
-
-```bash
-# 가상환경 활성화
-source venv/bin/activate
-
-# 전체 크롤링 (이미지 제외)
-python main.py all --no-images
-
-# DB 통계 확인
-python main.py stats
-
-# Young Fresh Mall 실행
-python app.py
-
-# Admin 테스트 실행
-python admin_visual_test.py
-
-# DB 직접 조회 (SQLite)
-sqlite3 data/products.db
-.tables
-SELECT COUNT(*) FROM products;
-SELECT * FROM products LIMIT 5;
-```
+### 네이버 밴드
+- Chrome 프로필(`data/chrome_profile/`)에 세션 저장
+- 최초 `band-login`으로 수동 로그인 필요
 
 ---
 
-## 10. 실제 동작 예시 (시퀀스)
+## 11. 향후 계획
 
-### 예시 1: 크롤링 실행
+### 아키텍처 (OpenClaw 통합)
+- **OpenClaw**: 메인 컨트롤러 (텔레그램 승인, 크롤링 스케줄링)
+- **Cloudflare Tunnel**: 쇼핑몰 퍼블릭 접근용
+- **Tailscale**: OpenClaw ↔ 로컬 서버 비공개 통신용
+- **Cron**: 주기적 크롤링 + 밴드 포스팅 자동화
 
-```bash
-$ python main.py all --no-images
+```mermaid
+graph TB
+    subgraph "Public Internet"
+        CUSTOMER[고객<br/>쇼핑몰 접속]
+        CF[Cloudflare Tunnel<br/>도메인: youngfresh.kr]
+    end
 
-==================================================
-Starting category: 과일 (A)
-==================================================
+    subgraph "Tailscale Network (Private)"
+        OPENCLAW[OpenClaw<br/>메인 컨트롤러]
+        SERVER[로컬 서버<br/>Flask + Crawler + Band]
+        TELEGRAM[텔레그램 봇<br/>승인/알림]
+    end
 
-[Category A] Fetching: https://os79.co.kr/board_order/goods_list.asp?s_article_gubun=A
-[Category A] Found 89 products
+    CUSTOMER -->|HTTPS| CF
+    CF -->|Tunnel| SERVER
 
-Crawling 과일: 100%|███████████████| 89/89 [02:15<00:00,  1.52s/it]
+    OPENCLAW -->|Tailscale API| SERVER
+    OPENCLAW <-->|알림/승인| TELEGRAM
 
-Category A completed: 89 success, 0 fail
+    OPENCLAW -->|크롤링 명령| SERVER
+    OPENCLAW -->|밴드 포스팅 명령| SERVER
+    OPENCLAW -->|쇼핑몰 수정| SERVER
 
-==================================================
-Starting category: 고구마, 야채 BEST (B)
-==================================================
-...
-
-총 결과: 211개 상품 수집 완료
+    style CF fill:#fff3cd
+    style OPENCLAW fill:#e3f2fd
+    style CUSTOMER fill:#d4edda
 ```
 
-### 예시 2: Admin 테스트 플로우
+### 텔레그램 승인 플로우 (예정)
+1. 크롤링 → 신규 상품 감지
+2. 테스트 밴드에 미리보기 게시
+3. 텔레그램으로 "이 상품 본 밴드에 올릴까요?" 승인 요청
+4. 승인 시 `band-confirm` 실행
+5. 거부 시 스킵
 
-```
-브라우저: http://localhost:5002
-
-1. [Step 1: Login] 클릭
-   → admin.open79.co.kr 로그인
-   → "✓ Step 1 완료" 표시
-
-2. [Step 2: Register Customer] 클릭
-   → 고객 등록 폼 자동 입력
-     - 이름: 정예진
-     - 주소: 서울특별시 동대문구 서울시립대로 19...
-     - 전화번호: REDACTED_PHONE
-   → "✓ Step 2 완료" 표시
-   → [View Result] 버튼 활성화
-
-3. [Step 2: View Result] 클릭
-   → iframe에 고객 목록 표시
-   → 방금 등록한 "정예진" 확인 가능
-
-4. [Step 3: Create Order] 클릭
-   → 주문서 작성 폼 자동 입력
-     - 카테고리: 13 (참외/귤종류/포도종류/유자)
-     - 품목: 42092 (레드향)
-     - 가격: 42,500원 (Admin JS 자동입력)
-     - 재고: 36 (Admin JS 자동입력)
-     - 고객 입금액: 56,700원
-   → "✓ Step 3 완료" 표시
-
-5. [Step 4: View Orders] 클릭
-   → iframe에 주문 목록 표시
-   → 방금 생성한 주문 확인 가능
-```
-
-### 예시 3: DB에서 상품 조회
-
-```bash
-$ python main.py stats
-
-=== 크롤링 통계 ===
-총 상품 수: 211
-카테고리별:
-  A (과일): 89
-  B (고구마, 야채 BEST): 45
-  C (수산): 23
-  D (축산): 18
-  E (쌀, 잡곡): 21
-  F (건어물, 기타): 15
-
-데이터 품질:
-  메인 이미지: 198/211 (93.8%)
-  가격 정보: 211/211 (100.0%)
-  상품 설명: 189/211 (89.6%)
-  상세 콘텐츠: 176/211 (83.4%)
-```
-
-```bash
-$ sqlite3 data/products.db
-
-sqlite> SELECT article_idx, name, price, stock FROM products WHERE article_idx = 42092;
-
-42092|제주/보배진/레드향(13과)-3kg내외|42500|36
-```
-
-### 예시 4: 옵션 데이터 구조
-
-```python
-# DB에서 가져온 Product.options (JSON 문자열)
-'[
-  {"value": "42092", "text": "제주/보배진/레드향(13과)-3kg내외"},
-  {"value": "42093", "text": "2박스*제주/보배진/레드향(26과)-6kg내외"}
-]'
-
-# Python에서 파싱
-import json
-options = json.loads(product.options)
-print(options[0]['text'])
-# 출력: 제주/보배진/레드향(13과)-3kg내외
-
-# app.py에서 사용
-{% for opt in options %}
-  <option value="{{ opt.value }}">{{ opt.text }}</option>
-{% endfor %}
-```
-
-### 예시 5: detail_content 구조 (텍스트+이미지 순서 유지)
-
-```python
-# DB에서 가져온 Product.detail_content (JSON 문자열)
-'[
-  {"type": "text", "content": "제주 청정 지역에서 재배된 레드향입니다."},
-  {"type": "image", "url": "https://os79.co.kr/admin/file_data/detail_001.jpg"},
-  {"type": "text", "content": "달콤하고 상큼한 맛이 일품입니다."},
-  {"type": "image", "url": "https://os79.co.kr/admin/file_data/detail_002.jpg"}
-]'
-
-# viewer.py에서 렌더링
-{% for item in detail_content %}
-  {% if item.type == 'text' %}
-    <div class="text-block">{{ item.content }}</div>
-  {% elif item.type == 'image' %}
-    <div class="image-block">
-      <img src="{{ item.url }}" alt="상세 이미지">
-    </div>
-  {% endif %}
-{% endfor %}
-```
+### 나머지 TODO
+- `BAND_PRODUCTION_URL` 설정 (본 밴드 URL)
+- Aligo SMS API 키 설정
+- 168개 전체 상품 re-crawl (새 설명 포맷 적용)
+- Cloudflare Tunnel + Tailscale 설정
+- OpenClaw + 텔레그램 봇 연동
 
 ---
 
@@ -971,5 +805,18 @@ print(options[0]['text'])
 |------|------|
 | 2025-01-20 | 초기 크롤러 및 프론트엔드 구현 |
 | 2025-01-21 | Admin 연동 테스트 구현 |
-| 2025-01-26 | EUC-KR 인코딩 수정, 테스트 데이터 업데이트 |
-| 2025-01-26 | 전체 크롤링 실행 (211개 상품) |
+| 2025-01-26 | EUC-KR 인코딩 수정, 전체 크롤링 실행 (211개 상품) |
+| 2026-03-02 | 최신 크롤링 (168개 활성 상품) |
+| 2026-03-02 | Admin 동기화 (js_article.asp 자동 파싱) 구현 |
+| 2026-03-02 | 상품 비활성화 로직 구현 (os79 페이지 + Admin 드롭다운 이중 검증) |
+| 2026-03-02 | Young Fresh Mall 쇼핑몰 구현 (주문/결제 포함) |
+| 2026-03-02 | Admin 주문 자동 등록 (order_processor.py) 구현 |
+| 2026-03-02 | Aligo SMS 모듈 (sms.py) 구현 |
+| 2026-03-02 | 네이버 밴드 자동 포스팅 (Selenium) 구현 |
+| 2026-03-03 | 밴드 이미지 중복 수정 (main 제외, detail만 업로드) |
+| 2026-03-03 | 설명 텍스트 줄바꿈 보존 개선 (regex 기반 HTML→텍스트) |
+| 2026-03-03 | 카카오 오픈채팅 URL 교체 로직 추가 |
+| 2026-03-03 | app.py is_active 필터 추가 (비활성 상품 주문 차단) |
+| 2026-03-03 | 밴드 포스팅 추적 필드 4개 추가 (band_posted_at 등) |
+| 2026-03-03 | Admin 드롭다운 비활성화 로직 추가 |
+| 2026-03-03 | Incremental 밴드 포스팅 워크플로우 구현 (band-new/preview/confirm) |

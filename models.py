@@ -63,6 +63,23 @@ class Product(Base):
     category_id = Column(Integer, ForeignKey("categories.id"))
     category = relationship("Category", back_populates="products")
 
+    # Admin 사이트 매핑 정보 (js_article.asp에서 파싱)
+    admin_category_idx = Column(String(10))   # Admin 카테고리 코드 (6, 13, 23 등)
+    admin_price = Column(Integer)              # Admin 판매가
+    admin_stock = Column(Integer)              # Admin 재고
+    admin_delivery_fee = Column(Integer)       # Admin 배송비
+    admin_synced_at = Column(DateTime)         # Admin 동기화 시간
+
+    # 활성 상태 관리
+    is_active = Column(Boolean, default=True)    # 현재 판매 중인 상품인지
+    last_seen_at = Column(DateTime)              # 마지막으로 크롤링에서 발견된 시간
+
+    # 밴드 포스팅 추적
+    band_posted_at = Column(DateTime)            # 본 밴드 게시 완료 시간 (NULL=미게시)
+    band_post_url = Column(String(1000))         # 본 밴드 게시물 URL
+    band_preview_posted_at = Column(DateTime)    # 테스트 밴드 미리보기 시간
+    band_preview_url = Column(String(1000))      # 테스트 밴드 게시물 URL
+
     # 메타 정보
     source_url = Column(String(1000))  # 원본 페이지 URL
     crawled_at = Column(DateTime, default=datetime.now)
@@ -85,6 +102,68 @@ class ProductImage(Base):
     order = Column(Integer, default=0)  # 이미지 순서
 
     created_at = Column(DateTime, default=datetime.now)
+
+
+class Order(Base):
+    """주문 정보"""
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    order_number = Column(String(50), unique=True, nullable=False)  # 주문번호 (YF-20260302-001)
+
+    # 고객 정보
+    customer_name = Column(String(100), nullable=False)   # 받으실 분
+    customer_phone = Column(String(20), nullable=False)    # 휴대폰
+    zipcode = Column(String(10))                           # 우편번호
+    address = Column(String(500))                          # 기본주소
+    address_detail = Column(String(500))                   # 상세주소
+
+    # 결제 정보
+    depositor_name = Column(String(100))                   # 입금자명
+    cash_receipt_no = Column(String(30))                   # 현금영수증 번호
+    total_amount = Column(Integer, default=0)              # 총 결제금액
+    memo = Column(Text)                                    # 배송 메모
+
+    # 상태 관리
+    status = Column(String(20), default="pending")         # pending → processing → completed → failed
+    error_message = Column(Text)                           # 실패 시 에러 메시지
+
+    # Admin 연동 정보
+    admin_customer_idx = Column(String(20))                # Admin에서 등록된 고객 ID
+    admin_synced_at = Column(DateTime)                     # Admin 등록 완료 시간
+
+    # 메타 정보
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Order({self.order_number}, {self.customer_name}, {self.status})>"
+
+
+class OrderItem(Base):
+    """주문 상품 항목"""
+    __tablename__ = "order_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+
+    # 상품 정보
+    product_id = Column(Integer, ForeignKey("products.id"))
+    article_idx = Column(Integer, nullable=False)          # 상품 ID
+    product_name = Column(String(500), nullable=False)     # 상품명
+    quantity = Column(Integer, default=1)                  # 수량
+    price = Column(Integer, default=0)                     # 단가
+    delivery_fee = Column(Integer, default=0)              # 배송비
+
+    # Admin 매핑
+    admin_category_idx = Column(String(10))                # Admin 카테고리 코드
+
+    order = relationship("Order", back_populates="items")
+
+    def __repr__(self):
+        return f"<OrderItem({self.product_name}, qty={self.quantity})>"
 
 
 class CrawlLog(Base):

@@ -1,0 +1,68 @@
+[
+  {
+    "domain": "www.band.us",
+    "httpOnly": true,
+    "name": "JSESSIONID",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "5FBCB769AEB701E28792CF9ED3E80DBA"
+  },
+  {
+    "domain": ".band.us",
+    "httpOnly": false,
+    "name": "ai",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "\"11576c9,19cb8c64965\""
+  },
+  {
+    "domain": ".band.us",
+    "expiry": 1807013749,
+    "httpOnly": false,
+    "name": "language",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "ko"
+  },
+  {
+    "domain": ".band.us",
+    "expiry": 1807013676,
+    "httpOnly": false,
+    "name": "di",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "web-AAAAABsmLhNd0e84bV4AZyueMNOzLQ7UeqUlMcHUmjWzgcLp0J6pMGoS_OtwzwiNHKZ-eI"
+  },
+  {
+    "domain": ".band.us",
+    "expiry": 1807013658,
+    "httpOnly": false,
+    "name": "BBC",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "09b6511d-4ad3-4964-ad4f-1eeaf705ad40"
+  },
+  {
+    "domain": ".band.us",
+    "httpOnly": false,
+    "name": "band_session",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "ZQIAAMLriyerar3xUm7UlDbrf1C7vk8CQS0C5Q988LCwXQXLo555egehwmfkBfQkCnDDuWvOHCyI5By-cD5Y3HTD3OlJOEOG9ODbEfxu1xgG6tdF"
+  },
+  {
+    "domain": ".band.us",
+    "httpOnly": false,
+    "name": "as",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "\"2f5db6a:CquOtU5/5Z+Aa42tz9xeb7bfk5e5yYe3zrsguT1q+h0=\""
+  }
+]
