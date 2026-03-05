@@ -106,6 +106,7 @@ class PaymentChecker:
     def check_payments(self) -> Dict:
         """
         미입금 주문 확인 → Admin에서 입금완료된 건 자동 처리
+        1:1 매칭: 각 Admin 입금완료 건은 하나의 DB 주문만 매칭
 
         Returns: {'checked': N, 'confirmed': N, 'still_pending': N}
         """
@@ -113,7 +114,7 @@ class PaymentChecker:
         awaiting_orders = db_session.query(Order).filter(
             Order.status == 'awaiting_payment',
             Order.payment_confirmed_at == None
-        ).all()
+        ).order_by(Order.created_at.asc()).all()
 
         if not awaiting_orders:
             log_event('info', 'payment', '미입금 주문 없음 — 체크 스킵')
@@ -125,17 +126,18 @@ class PaymentChecker:
         # Admin 주문 목록 가져오기
         admin_orders = self._fetch_admin_orders()
 
-        # 입금완료된 Admin 주문의 고객명+상품명 세트
+        # 입금완료된 Admin 주문 (1:1 매칭을 위해 사용 후 제거)
         paid_entries = [
             ao for ao in admin_orders if ao['payment_status'] == 'paid'
         ]
 
         confirmed_count = 0
         for order in awaiting_orders:
-            # 매칭: 고객명으로 검색, 입금완료 상태인지 확인
-            matched = self._match_order_to_admin(order, paid_entries)
-            if matched:
+            # 1:1 매칭: 매칭된 Admin 엔트리의 인덱스 반환
+            matched_idx = self._match_order_to_admin(order, paid_entries)
+            if matched_idx is not None:
                 self._confirm_payment_for_order(db_session, order)
+                paid_entries.pop(matched_idx)  # 사용된 엔트리 제거 (1:1)
                 confirmed_count += 1
 
         db_session.close()
@@ -158,20 +160,45 @@ class PaymentChecker:
 
         return result
 
-    def _match_order_to_admin(self, order: Order, paid_entries: List[Dict]) -> bool:
-        """우리 주문과 Admin 입금완료 건을 매칭"""
-        for entry in paid_entries:
-            # 고객명 매칭
-            if entry['customer_name'] == order.customer_name:
-                # 상품명으로도 교차 확인 (부분 매칭)
-                for item in order.items:
-                    if item.product_name and entry['product_name']:
-                        # 상품명 일부가 포함되면 매칭
-                        if (item.product_name[:10] in entry['product_name'] or
-                                entry['product_name'][:10] in item.product_name):
-                            return True
-                # 상품명 매칭이 안 되어도 고객명이 같고 금액이 비슷하면 매칭
-                # (Admin에서 상품명이 다를 수 있으므로 고객명만으로도 매칭)
+    def _match_order_to_admin(self, order: Order, paid_entries: List[Dict]) -> Optional[int]:
+        """
+        우리 주문과 Admin 입금완료 건을 매칭
+        Returns: 매칭된 paid_entries 인덱스 (없으면 None)
+
+        매칭 우선순위:
+        1순위: 고객명 + 상품명 매칭 (가장 정확)
+        2순위: 입금자명 + 상품명 매칭 (입금자명이 다를 수 있으므로)
+        고객명만으로는 매칭하지 않음 (동일 고객 복수 주문 오매칭 방지)
+        """
+        # 1순위: 고객명 + 상품명 동시 매칭
+        for idx, entry in enumerate(paid_entries):
+            if entry['customer_name'] != order.customer_name:
+                continue
+            # 상품명 매칭 필수
+            if self._match_product_name(order, entry):
+                return idx
+
+        # 2순위: 입금자명 + 상품명 매칭
+        if order.depositor_name:
+            for idx, entry in enumerate(paid_entries):
+                if entry['customer_name'] != order.depositor_name:
+                    continue
+                if self._match_product_name(order, entry):
+                    return idx
+
+        return None
+
+    def _match_product_name(self, order: Order, admin_entry: Dict) -> bool:
+        """주문 상품명과 Admin 상품명 매칭 (부분 매칭)"""
+        admin_product = admin_entry.get('product_name', '')
+        if not admin_product:
+            return False
+        for item in order.items:
+            if not item.product_name:
+                continue
+            # 양방향 부분 매칭 (Admin 상품명이 축약될 수 있으므로)
+            if (item.product_name[:15] in admin_product or
+                    admin_product[:15] in item.product_name):
                 return True
         return False
 
@@ -216,7 +243,7 @@ class PaymentChecker:
         paid_entries = [ao for ao in admin_orders if ao['payment_status'] == 'paid']
         _ = order.items  # lazy load for matching
 
-        if not self._match_order_to_admin(order, paid_entries):
+        if self._match_order_to_admin(order, paid_entries) is None:
             db_session.close()
             return {'success': False, 'error': 'Admin에서 아직 입금 확인되지 않은 주문입니다.'}
 

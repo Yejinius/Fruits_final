@@ -93,13 +93,29 @@ class AdminOrderProcessor:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(list_html, 'html.parser')
 
-        # 첫 번째 고객 행에서 c_goods_idx 추출
-        first_row = soup.find('tr', class_='tr_class')
-        if first_row:
+        # 고객명+전화번호로 매칭하여 c_goods_idx 추출 (첫 번째 행이 아닌 정확한 매칭)
+        phone_digits = order.customer_phone.replace("-", "")
+        rows = soup.find_all('tr', class_='tr_class')
+        for row in rows:
+            row_text = row.get_text(strip=True)
+            # 고객명과 전화번호 둘 다 포함된 행 찾기
+            if order.customer_name in row_text and phone_digits in row_text:
+                order_btn = row.find('span', class_='btn_m_white01')
+                if order_btn and order_btn.get('onclick'):
+                    match = re.search(r"c_goods_idx=(\d+)", order_btn.get('onclick'))
+                    if match:
+                        return match.group(1)
+
+        # 정확한 매칭 실패 시 첫 번째 행 fallback (기존 동작)
+        if rows:
+            first_row = rows[0]
             order_btn = first_row.find('span', class_='btn_m_white01')
             if order_btn and order_btn.get('onclick'):
                 match = re.search(r"c_goods_idx=(\d+)", order_btn.get('onclick'))
                 if match:
+                    log_event('warning', 'order',
+                              f"고객 정확 매칭 실패, 첫 번째 행 사용: {order.customer_name}",
+                              related_id=order.order_number)
                     return match.group(1)
 
         log_event('error', 'order', f"고객 등록 후 customer_idx 추출 실패: {order.customer_name}", related_id=order.order_number)
