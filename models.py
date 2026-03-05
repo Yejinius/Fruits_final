@@ -125,12 +125,16 @@ class Order(Base):
     memo = Column(Text)                                    # 배송 메모
 
     # 상태 관리
-    status = Column(String(20), default="pending")         # pending → processing → completed → failed
+    status = Column(String(20), default="pending")         # pending → processing → awaiting_payment → paid → failed
     error_message = Column(Text)                           # 실패 시 에러 메시지
 
     # Admin 연동 정보
     admin_customer_idx = Column(String(20))                # Admin에서 등록된 고객 ID
     admin_synced_at = Column(DateTime)                     # Admin 등록 완료 시간
+
+    # 입금 확인
+    payment_confirmed_at = Column(DateTime)                # 입금 확인 시각
+    oos_notified_at = Column(DateTime)                     # 품절 안내 SMS 발송 시각 (중복 방지)
 
     # 메타 정보
     created_at = Column(DateTime, default=datetime.now)
@@ -181,11 +185,41 @@ class CrawlLog(Base):
     error_message = Column(Text)
 
 
+class EventLog(Base):
+    """시스템 이벤트/에러 로그 (텔레그램 보고용)"""
+    __tablename__ = "event_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    level = Column(String(20), nullable=False)      # info / warning / error / critical
+    category = Column(String(50), nullable=False)    # crawl / admin_sync / order / band / sms
+    message = Column(Text, nullable=False)            # 사람이 읽을 수 있는 메시지
+    detail = Column(Text)                             # 상세 정보 (JSON, traceback 등)
+    related_id = Column(String(100))                  # 관련 ID (order_number, article_idx 등)
+    notified = Column(Boolean, default=False)         # 텔레그램 전송 완료 여부
+    created_at = Column(DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f"<EventLog({self.level}, {self.category}, {self.message[:50]})>"
+
+
 # 데이터베이스 초기화
 def init_db():
     """데이터베이스 및 테이블 생성"""
     engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
     Base.metadata.create_all(engine)
+
+    # SQLite 마이그레이션: 새 컬럼 추가 (이미 존재하면 무시)
+    import sqlite3
+    conn = sqlite3.connect(str(DB_PATH))
+    cursor = conn.cursor()
+    for col in ['oos_notified_at DATETIME']:
+        try:
+            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col}")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+    conn.close()
+
     return engine
 
 
@@ -194,6 +228,22 @@ def get_session():
     engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
     Session = sessionmaker(bind=engine)
     return Session()
+
+
+def log_event(level, category, message, detail=None, related_id=None):
+    """이벤트 로그 DB 기록 + 콘솔 출력"""
+    try:
+        session = get_session()
+        log = EventLog(
+            level=level, category=category, message=message,
+            detail=detail, related_id=str(related_id) if related_id else None
+        )
+        session.add(log)
+        session.commit()
+        session.close()
+    except Exception:
+        pass  # 로깅 자체가 실패해도 메인 프로세스 중단하지 않음
+    print(f"[{level.upper()}][{category}] {message}")
 
 
 if __name__ == "__main__":

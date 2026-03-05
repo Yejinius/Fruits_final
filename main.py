@@ -95,9 +95,10 @@ def crawl_all(download_images: bool = True):
         total_fail = 0
 
         for code, result in results.items():
-            print(f"  {CATEGORIES[code]}: 성공 {result['success']}, 실패 {result['fail']}")
-            total_success += result['success']
-            total_fail += result['fail']
+            if code in CATEGORIES:
+                print(f"  {CATEGORIES[code]}: 성공 {result['success']}, 실패 {result['fail']}")
+                total_success += result['success']
+                total_fail += result['fail']
 
         print(f"\n총계: 성공 {total_success}개, 실패 {total_fail}개")
 

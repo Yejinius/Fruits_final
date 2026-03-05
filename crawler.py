@@ -4,21 +4,53 @@ OS79.co.kr 크롤러 핵심 로직
 import re
 import json
 import time
+import html as html_mod
+import random
 import requests
 from bs4 import BeautifulSoup
+from sqlalchemy.orm import joinedload
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Set
 from tqdm import tqdm
 
 from config import (
     BASE_URL, GOODS_LIST_URL, GOODS_VIEW_URL,
-    CATEGORIES, HEADERS, REQUEST_DELAY, REQUEST_TIMEOUT, MAX_RETRIES, IMAGES_DIR
+    CATEGORIES, HEADERS, REQUEST_DELAY_MIN, REQUEST_DELAY_MAX,
+    REQUEST_TIMEOUT, MAX_RETRIES, IMAGES_DIR,
+    USER_AGENTS, BLOCK_BACKOFF_BASE, BLOCK_BACKOFF_MAX,
+    ADMIN_BASE_URL, ADMIN_ID, ADMIN_PW
 )
 from models import (
     init_db, get_session,
-    Category, Product, ProductImage, CrawlLog
+    Category, Product, ProductImage, CrawlLog, Order, OrderItem, log_event
 )
+from sms import send_out_of_stock_sms
+
+# HTML 서식 보존용 화이트리스트 (XSS 방지)
+ALLOWED_TAGS = {'b', 'strong', 'em', 'i', 'u', 'br', 'p', 'div', 'span',
+                'font', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'ul', 'ol', 'li', 'a', 'sub', 'sup', 'hr', 'table',
+                'tr', 'td', 'th', 'thead', 'tbody'}
+ALLOWED_ATTRS = {'style', 'href', 'target', 'color', 'size', 'face'}
+
+
+def sanitize_html(html_str: str) -> tuple:
+    """위험한 태그 제거, 서식 태그만 유지. (sanitized_html, plain_text) 반환"""
+    s = BeautifulSoup(html_str, 'html.parser')
+    for tag in s.find_all(['script', 'style', 'iframe', 'object', 'embed']):
+        tag.decompose()
+    for tag in s.find_all(True):
+        if tag.name not in ALLOWED_TAGS:
+            tag.unwrap()
+        else:
+            attrs = dict(tag.attrs)
+            for attr in attrs:
+                if attr not in ALLOWED_ATTRS:
+                    del tag[attr]
+    cleaned = str(s)
+    plain = s.get_text(strip=True)
+    return cleaned, plain
 
 
 class OS79Crawler:
@@ -29,11 +61,34 @@ class OS79Crawler:
         self.session.headers.update(HEADERS)
         self.db_session = None
 
+    _REFERER = BASE_URL + "/"
+
+    def _rotate_headers(self):
+        """요청마다 User-Agent 랜덤 선택 + Referer 설정"""
+        self.session.headers['User-Agent'] = random.choice(USER_AGENTS)
+        self.session.headers['Referer'] = self._REFERER
+
+    def _random_delay(self):
+        """랜덤 딜레이로 요청 간격 자연스럽게"""
+        delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
+        time.sleep(delay)
+
     def _request(self, url: str, retries: int = MAX_RETRIES) -> Optional[requests.Response]:
-        """HTTP 요청 with 재시도 로직"""
+        """HTTP 요청 with UA 로테이션, 재시도, 403/429 백오프"""
         for attempt in range(retries):
             try:
+                self._rotate_headers()
                 response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+
+                # IP 차단/속도 제한 감지
+                if response.status_code in (403, 429):
+                    backoff = min(BLOCK_BACKOFF_BASE * (2 ** attempt), BLOCK_BACKOFF_MAX)
+                    backoff += random.uniform(0, backoff * 0.5)
+                    log_event('warning', 'crawl',
+                        f"차단 감지 ({response.status_code}): {url} - {backoff:.0f}초 대기 (시도 {attempt+1}/{retries})")
+                    time.sleep(backoff)
+                    continue
+
                 response.raise_for_status()
                 # 인코딩 처리 (EUC-KR 사이트)
                 response.encoding = response.apparent_encoding or 'euc-kr'
@@ -41,7 +96,8 @@ class OS79Crawler:
             except requests.RequestException as e:
                 print(f"[Attempt {attempt + 1}/{retries}] Request failed: {url} - {e}")
                 if attempt < retries - 1:
-                    time.sleep(REQUEST_DELAY * 2)
+                    backoff = REQUEST_DELAY_MAX * (2 ** attempt)
+                    time.sleep(backoff)
         return None
 
     def get_product_list(self, category_code: str) -> List[Dict[str, Any]]:
@@ -152,12 +208,12 @@ class OS79Crawler:
             detail_section = soup.find(class_='productDetail') or soup.find(class_='goods_view')
 
         if detail_section:
-            # 텍스트와 이미지를 순서대로 추출
+            # 텍스트와 이미지를 순서대로 추출 (HTML 서식 보존)
             detail_content = []
             detail_images = []
 
             def extract_content(element):
-                """재귀적으로 텍스트와 이미지 추출"""
+                """재귀적으로 텍스트와 이미지 추출 (HTML 서식 보존)"""
                 for child in element.children:
                     if child.name == 'img':
                         img_src = child.get('src', '')
@@ -167,15 +223,23 @@ class OS79Crawler:
                             if full_url not in detail_images:
                                 detail_images.append(full_url)
                     elif child.name is not None:
-                        # 하위 요소 재귀 탐색 (br 포함 모든 태그)
-                        extract_content(child)
+                        # 이미지가 포함된 요소는 재귀 탐색
+                        if child.find('img'):
+                            extract_content(child)
+                        else:
+                            # 이미지 없는 요소 → HTML 서식 보존하여 캡처
+                            cleaned, plain = sanitize_html(str(child))
+                            if plain:
+                                if detail_content and detail_content[-1]['type'] == 'text':
+                                    detail_content[-1]['content'] += cleaned
+                                else:
+                                    detail_content.append({'type': 'text', 'content': cleaned})
                     else:
                         # 텍스트 노드
                         text = str(child).strip()
                         if text:
-                            # 이전 항목이 텍스트면 합치기
                             if detail_content and detail_content[-1]['type'] == 'text':
-                                detail_content[-1]['content'] += '\n' + text
+                                detail_content[-1]['content'] += text
                             else:
                                 detail_content.append({'type': 'text', 'content': text})
 
@@ -190,7 +254,6 @@ class OS79Crawler:
             product['detail_content'] = detail_content
             product['detail_images'] = detail_images
             # description: HTML → 텍스트 (원본 줄바꿈/공백 보존)
-            import html as html_mod
             desc_html = str(detail_section)
             desc_text = re.sub(r'<img[^>]*/?>', '', desc_html)        # 이미지 제거
             desc_text = re.sub(r'<br\s*/?>', '\n', desc_text)         # <br> → 줄바꿈
@@ -330,7 +393,7 @@ class OS79Crawler:
 
             # 각 상품 상세 정보 크롤링
             for item in tqdm(product_list, desc=f"Crawling {category.name}"):
-                time.sleep(REQUEST_DELAY)
+                self._random_delay()
 
                 try:
                     product_data = self.get_product_detail(item['article_idx'])
@@ -362,7 +425,7 @@ class OS79Crawler:
                     results['success'] += 1
 
                 except Exception as e:
-                    print(f"Error processing product {item['article_idx']}: {e}")
+                    log_event('warning', 'crawl', f"상품 {item['article_idx']} 크롤링 실패: {e}", related_id=str(item['article_idx']))
                     results['fail'] += 1
 
             # 로그 완료
@@ -374,6 +437,7 @@ class OS79Crawler:
         except Exception as e:
             log.status = 'failed'
             log.error_message = str(e)
+            log_event('error', 'crawl', f"카테고리 {category_code} 크롤링 실패: {e}")
             raise
 
         finally:
@@ -388,13 +452,19 @@ class OS79Crawler:
         # Admin 로그인
         admin_session = requests.Session()
         admin_session.headers.update({'User-Agent': 'Mozilla/5.0'})
-        admin_session.post(
-            "http://admin.open79.co.kr/m/include/asp/login_ok.asp",
-            data={"m_id": "REDACTED_ID", "m_passwd": "REDACTED_PW"}
+        login_resp = admin_session.post(
+            f"{ADMIN_BASE_URL}/m/include/asp/login_ok.asp",
+            data={"m_id": ADMIN_ID, "m_passwd": ADMIN_PW}
         )
+        if login_resp.status_code != 200:
+            log_event('error', 'admin_sync', f"Admin 로그인 실패: HTTP {login_resp.status_code}")
+            raise Exception(f"Admin 로그인 실패: HTTP {login_resp.status_code}")
 
         # js_article.asp 가져오기
-        resp = admin_session.get("http://admin.open79.co.kr/include/js/js_article.asp")
+        resp = admin_session.get(f"{ADMIN_BASE_URL}/include/js/js_article.asp")
+        if resp.status_code != 200:
+            log_event('error', 'admin_sync', f"js_article.asp 조회 실패: HTTP {resp.status_code}")
+            raise Exception(f"js_article.asp 조회 실패: HTTP {resp.status_code}")
         content = resp.content.decode('euc-kr', errors='ignore')
 
         # JavaScript 배열 파싱
@@ -469,18 +539,25 @@ class OS79Crawler:
             Product.is_active == True
         ).all()
 
+        admin_deactivated_ids = []
         for product in active_products:
             if product.article_idx not in admin_article_ids:
                 product.is_active = False
                 admin_deactivated += 1
+                admin_deactivated_ids.append(product.article_idx)
                 print(f"  [Admin] 비활성화: {product.article_idx} - {product.name[:30]}")
 
         self.db_session.commit()
-        print(f"[Admin Sync] Synced: {synced}, Not in DB: {not_found}, Admin 미발견 비활성화: {admin_deactivated}")
-        return {'synced': synced, 'not_found': not_found, 'admin_deactivated': admin_deactivated}
 
-    def deactivate_missing_products(self, crawl_started_at: datetime) -> Dict[str, int]:
-        """이번 크롤링에서 발견되지 않은 상품을 비활성화"""
+        log_msg = f"Admin 동기화 완료: {synced}개 동기화, {not_found}개 DB 미발견, {admin_deactivated}개 비활성화"
+        if admin_deactivated > 0:
+            log_event('warning', 'admin_sync', log_msg)
+        else:
+            log_event('info', 'admin_sync', log_msg)
+        return {'synced': synced, 'not_found': not_found, 'admin_deactivated': admin_deactivated, 'admin_deactivated_ids': admin_deactivated_ids}
+
+    def deactivate_missing_products(self, crawl_started_at: datetime) -> Dict[str, Any]:
+        """이번 크롤링에서 발견되지 않은 상품을 비활성화 (안전장치 포함)"""
         if not self.db_session:
             self.db_session = get_session()
 
@@ -490,14 +567,87 @@ class OS79Crawler:
             (Product.last_seen_at == None) | (Product.last_seen_at < crawl_started_at)
         ).all()
 
+        # 안전장치: 50% 이상 비활성화 대상이면 크롤링 오류 가능성 → 스킵
+        total_active = self.db_session.query(Product).filter(Product.is_active == True).count()
+        if total_active > 0 and len(stale_products) > total_active * 0.5:
+            log_event('error', 'crawl',
+                f"비활성화 스킵: {len(stale_products)}/{total_active}개 대상 (50% 초과) — 크롤링 오류 또는 IP 차단 가능성")
+            return {'deactivated': 0, 'deactivated_ids': [], 'skipped_safety': True}
+
         deactivated = 0
+        deactivated_ids = []
         for product in stale_products:
             product.is_active = False
             deactivated += 1
+            deactivated_ids.append(product.article_idx)
 
         self.db_session.commit()
-        print(f"\n[Deactivate] {deactivated}개 상품 비활성화 (크롤링에서 미발견)")
-        return {'deactivated': deactivated}
+        if deactivated > 0:
+            log_event('warning', 'crawl', f"os79 미발견으로 {deactivated}개 상품 비활성화")
+        else:
+            log_event('info', 'crawl', "비활성화 대상 상품 없음 (모든 상품 정상)")
+        return {'deactivated': deactivated, 'deactivated_ids': deactivated_ids}
+
+    def notify_out_of_stock_orders(self, deactivated_article_ids: Set[int]) -> Dict[str, int]:
+        """비활성화된 상품을 포함한 입금 완료 주문에 품절 SMS 발송"""
+        if not deactivated_article_ids:
+            return {'notified': 0, 'skipped': 0}
+
+        if not self.db_session:
+            self.db_session = get_session()
+
+        # status='paid' + 품절 미통보 + 비활성화 상품 포함 주문 조회
+        affected_orders = (
+            self.db_session.query(Order)
+            .options(joinedload(Order.items))
+            .join(OrderItem)
+            .filter(
+                Order.status == 'paid',
+                Order.oos_notified_at == None,
+                OrderItem.article_idx.in_(deactivated_article_ids)
+            )
+            .all()
+        )
+
+        notified = 0
+        skipped = 0
+
+        for order in affected_orders:
+            unavailable_items = [
+                item.product_name
+                for item in order.items
+                if item.article_idx in deactivated_article_ids
+            ]
+
+            if not unavailable_items:
+                skipped += 1
+                continue
+
+            try:
+                result = send_out_of_stock_sms(order, unavailable_items)
+                if result.get('success'):
+                    order.oos_notified_at = datetime.now()
+                    order.status = 'out_of_stock'
+                    self.db_session.commit()
+                    notified += 1
+                    log_event('info', 'sms',
+                        f"품절 SMS 발송: {order.order_number} - 품절상품: {', '.join(unavailable_items)}",
+                        related_id=order.order_number)
+                else:
+                    log_event('error', 'sms',
+                        f"품절 SMS 발송 실패: {order.order_number} - {result.get('message', '')}",
+                        related_id=order.order_number)
+                    skipped += 1
+            except Exception as e:
+                log_event('error', 'sms',
+                    f"품절 SMS 예외: {order.order_number} - {e}",
+                    related_id=order.order_number)
+                skipped += 1
+
+        if notified > 0:
+            log_event('warning', 'crawl', f"품절 알림 발송: {notified}건 발송, {skipped}건 스킵")
+
+        return {'notified': notified, 'skipped': skipped}
 
     def crawl_all(self, download_images: bool = True) -> Dict[str, Dict[str, int]]:
         """모든 카테고리 크롤링"""
@@ -522,15 +672,22 @@ class OS79Crawler:
         # 사라진 상품 비활성화
         deactivate_result = self.deactivate_missing_products(crawl_started_at)
         all_results['deactivated'] = deactivate_result
+        all_deactivated_ids = set(deactivate_result.get('deactivated_ids', []))
 
         # Admin 데이터 동기화
         try:
             admin_mappings = self.fetch_admin_mapping()
             sync_result = self.sync_admin_data(admin_mappings)
             all_results['admin_sync'] = sync_result
+            all_deactivated_ids.update(sync_result.get('admin_deactivated_ids', []))
         except Exception as e:
-            print(f"[Admin Sync] Failed: {e}")
+            log_event('error', 'admin_sync', f"Admin 동기화 실패: {e}", detail=str(e))
             all_results['admin_sync'] = {'error': str(e)}
+
+        # 품절 안내 SMS 발송 (입금 완료 주문 대상)
+        if all_deactivated_ids:
+            oos_result = self.notify_out_of_stock_orders(all_deactivated_ids)
+            all_results['oos_notifications'] = oos_result
 
         return all_results
 

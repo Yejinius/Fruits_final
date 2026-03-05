@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+.venv/
+
+# 환경 설정 (민감 정보)
+.env
+
+# 데이터
+data/products.db
+data/images/
+data/chrome_profile/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

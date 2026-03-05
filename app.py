@@ -4,12 +4,14 @@ Young Fresh Mall - 과일 공동구매 쇼핑몰
 import json
 from flask import Flask, render_template_string, request, jsonify, redirect, url_for
 from sqlalchemy.orm import joinedload
-from models import get_session, Product, Category, Order, OrderItem
-from config import CATEGORIES
+from models import get_session, Product, Category, Order, OrderItem, log_event
+from config import CATEGORIES, FLASK_SECRET_KEY, FLASK_HOST, FLASK_PORT
 from order_processor import create_order, AdminOrderProcessor
 from sms import send_order_received_sms, send_payment_confirmed_sms
+from payment_checker import payment_checker
 
 app = Flask(__name__)
+app.secret_key = FLASK_SECRET_KEY
 
 # 공통 스타일
 COMMON_STYLES = """
@@ -594,24 +596,6 @@ DETAIL_TEMPLATE = """
             background: var(--primary-dark);
         }
 
-        .cart-button {
-            width: 100%;
-            padding: 18px;
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--primary);
-            background: var(--bg-white);
-            border: 2px solid var(--primary);
-            border-radius: var(--radius-sm);
-            cursor: pointer;
-            transition: all 0.2s;
-            margin-top: 10px;
-        }
-
-        .cart-button:hover {
-            background: var(--bg-light);
-        }
-
         /* Content Section */
         .content-section {
             background: var(--bg-white);
@@ -637,8 +621,15 @@ DETAIL_TEMPLATE = """
             margin: 15px 0;
             font-size: 15px;
             line-height: 1.8;
-            white-space: pre-wrap;
             color: var(--text-dark);
+        }
+        .detail-content .text-block p {
+            margin: 8px 0;
+        }
+        .detail-content .text-block br {
+            display: block;
+            content: "";
+            margin: 4px 0;
         }
 
         .detail-content .image-block {
@@ -761,7 +752,6 @@ DETAIL_TEMPLATE = """
                 </div>
 
                 <a href="#" id="buyBtn" class="buy-button" style="display:block; text-align:center; color:white; text-decoration:none;">바로 구매하기</a>
-                <button class="cart-button">장바구니 담기</button>
 
                 <script>
                 var unitPrice = {{ product.price or 0 }};
@@ -791,7 +781,7 @@ DETAIL_TEMPLATE = """
             <div class="detail-content">
                 {% for item in detail_content %}
                     {% if item.type == 'text' %}
-                    <div class="text-block">{{ item.content }}</div>
+                    <div class="text-block">{{ item.content | safe }}</div>
                     {% elif item.type == 'image' %}
                     <div class="image-block">
                         <img src="{{ item.url }}" alt="상세 이미지" loading="lazy">
@@ -1205,8 +1195,16 @@ ORDER_COMPLETE_TEMPLATE = """
 
     <main class="complete-container">
         <div class="check-icon">&#10003;</div>
-        <h2 style="font-size:24px; margin-bottom:10px;">주문이 완료되었습니다!</h2>
-        <p style="color:#666;">주문 내역을 확인해 주세요.</p>
+        <h2 style="font-size:24px; margin-bottom:10px;">입금 확인 시 주문이 완료됩니다!</h2>
+        <p style="color:#e53935; font-weight:600; margin-bottom:5px;">주문 후 3시간 이내로 입금해 주세요.</p>
+        <p style="color:#666; font-size:13px;">미입금 시 주문이 자동 취소될 수 있습니다.</p>
+
+        <div style="background:#FFF8E1; border:2px solid #FFB300; border-radius:var(--radius); padding:25px; margin:25px 0; text-align:center;">
+            <p style="font-size:15px; color:#666; margin-bottom:12px; font-weight:500;">아래 계좌로 <strong style="color:#E65100; font-size:17px;">총 {{ "{:,}".format(order.total_amount) }}원</strong>을 입금해 주세요</p>
+            <p style="font-size:20px; font-weight:800; color:#E65100; margin-bottom:8px;">농협 351-1064-5212-83</p>
+            <p style="font-size:17px; font-weight:700; color:#333;">예금주 : 오픈스토리☆</p>
+            <p style="font-size:15px; color:#888; margin-top:10px;">입금자명: <strong style="color:#333;">{{ order.depositor_name or order.customer_name }}</strong></p>
+        </div>
 
         <div class="order-info">
             <div class="info-row">
@@ -1237,7 +1235,7 @@ ORDER_COMPLETE_TEMPLATE = """
             </div>
             <div class="info-row">
                 <span class="info-label">주문 상태</span>
-                <span class="info-value">{{ {"pending": "주문 접수", "processing": "처리 중", "completed": "주문 완료", "failed": "주문 실패"}.get(order.status, order.status) }}</span>
+                <span class="info-value">{{ {"pending": "입금 대기", "processing": "처리 중", "awaiting_payment": "입금 대기", "paid": "입금 확인", "out_of_stock": "품절", "completed": "주문 완료", "failed": "주문 실패"}.get(order.status, order.status) }}</span>
             </div>
         </div>
 
@@ -1291,9 +1289,11 @@ def order_submit():
     # Admin 자동 등록 (백그라운드로 처리하는 것이 이상적이나, 여기선 동기 처리)
     processor = AdminOrderProcessor()
     try:
-        processor.process_order(order)
+        result = processor.process_order(order)
+        if not result.get('success'):
+            log_event('error', 'order', f"주문 {order.order_number} Admin 등록 실패: {result.get('error', '알 수 없는 오류')}", related_id=order.order_number)
     except Exception as e:
-        print(f"[Order] Admin 등록 중 에러 (주문은 생성됨): {e}")
+        log_event('error', 'order', f"주문 {order.order_number} Admin 등록 중 예외: {e}", detail=str(e), related_id=order.order_number)
     finally:
         processor.close()
 
@@ -1307,7 +1307,10 @@ def order_submit():
             send_order_received_sms(sms_order)
         sms_session.close()
     except Exception as e:
-        print(f"[SMS] 주문 접수 SMS 발송 실패 (주문은 정상 처리됨): {e}")
+        log_event('error', 'sms', f"주문 {order.order_number} 접수 SMS 발송 실패: {e}", detail=str(e), related_id=order.order_number)
+
+    # 10분 뒤 입금 확인 체크 예약
+    payment_checker.on_new_order()
 
     return redirect(f'/order/complete/{order.order_number}')
 
@@ -1333,18 +1336,15 @@ def order_complete(order_number):
 
 @app.route('/api/orders/<order_number>/confirm-payment', methods=['POST'])
 def api_confirm_payment(order_number):
-    """입금 확인 → SMS 발송"""
-    session = get_session()
-    order = session.query(Order).filter_by(order_number=order_number).first()
+    """수동 입금 확인 → DB 업데이트 + SMS 발송"""
+    result = payment_checker.confirm_payment_manual(order_number)
+    return jsonify(result)
 
-    if not order:
-        session.close()
-        return jsonify({'success': False, 'error': '주문을 찾을 수 없습니다.'}), 404
 
-    _ = order.items  # lazy load
-    result = send_payment_confirmed_sms(order)
-    session.close()
-
+@app.route('/api/payments/check', methods=['POST'])
+def api_check_payments():
+    """수동 입금 확인 체크 실행 (Admin 주문 목록 스크래핑)"""
+    result = payment_checker.check_payments()
     return jsonify(result)
 
 
@@ -1369,9 +1369,17 @@ def api_orders():
 
 
 if __name__ == '__main__':
+    import os
+    is_production = os.getenv('FLASK_ENV') == 'production'
+
     print("\n" + "=" * 50)
     print("Young Fresh Mall")
-    print("   http://127.0.0.1:5000 에서 확인하세요")
+    print(f"   http://{FLASK_HOST}:{FLASK_PORT} 에서 확인하세요")
     print("   종료: Ctrl+C")
     print("=" * 50 + "\n")
-    app.run(host='127.0.0.1', debug=True, port=5000)
+
+    # 입금 확인 스케줄러 시작 (미입금 건 있으면 30분 후 첫 체크)
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or is_production:
+        payment_checker.start_periodic(interval_minutes=30)
+
+    app.run(host=FLASK_HOST, debug=not is_production, port=FLASK_PORT)

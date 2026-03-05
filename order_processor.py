@@ -7,13 +7,14 @@ import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-from models import get_session, Order, OrderItem, Product
+from models import get_session, Order, OrderItem, Product, log_event
+from config import ADMIN_BASE_URL, ADMIN_ID, ADMIN_PW
 
 
 class AdminOrderProcessor:
     """Admin 사이트에 주문을 자동 등록하는 프로세서"""
 
-    BASE_URL = "http://admin.open79.co.kr"
+    BASE_URL = ADMIN_BASE_URL
 
     def __init__(self):
         self.session = requests.Session()
@@ -26,7 +27,7 @@ class AdminOrderProcessor:
         """Admin 사이트 로그인"""
         resp = self.session.post(
             f"{self.BASE_URL}/m/include/asp/login_ok.asp",
-            data={"m_id": "REDACTED_ID", "m_passwd": "REDACTED_PW"}
+            data={"m_id": ADMIN_ID, "m_passwd": ADMIN_PW}
         )
         self.logged_in = "location.replace" in resp.text
         return self.logged_in
@@ -42,16 +43,27 @@ class AdminOrderProcessor:
             )
             parts.append(f"{key}={encoded_value}")
         body = '&'.join(parts)
-        resp = self.session.post(
-            url, data=body,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'}
-        )
+        try:
+            resp = self.session.post(
+                url, data=body,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=30
+            )
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            log_event('error', 'order', f"Admin POST 실패: {path} - {e}", detail=str(data))
+            raise Exception(f"Admin POST 실패: {path} - {e}")
         return resp.content.decode('euc-kr', errors='ignore')
 
     def _get_page(self, path: str) -> str:
         """Admin 페이지 가져오기"""
         url = f"{self.BASE_URL}{path}"
-        resp = self.session.get(url)
+        try:
+            resp = self.session.get(url, timeout=30)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            log_event('error', 'order', f"Admin GET 실패: {path} - {e}")
+            raise Exception(f"Admin GET 실패: {path} - {e}")
         return resp.content.decode('euc-kr', errors='ignore')
 
     def register_customer(self, order: Order) -> Optional[str]:
@@ -72,6 +84,10 @@ class AdminOrderProcessor:
 
         result = self._post_form("/m/customer/p_custom_regist_ok.asp", form_data)
 
+        if "error" in result.lower():
+            log_event('error', 'order', f"고객 등록 실패: {order.customer_name}", detail=result[:500], related_id=order.order_number)
+            raise Exception(f"고객 등록 실패 - Admin 응답 에러: {result[:200]}")
+
         # 등록 후 고객 목록에서 방금 등록한 고객의 c_goods_idx 찾기
         list_html = self._get_page("/m/customer/p_custom_list.asp")
         from bs4 import BeautifulSoup
@@ -86,6 +102,7 @@ class AdminOrderProcessor:
                 if match:
                     return match.group(1)
 
+        log_event('error', 'order', f"고객 등록 후 customer_idx 추출 실패: {order.customer_name}", related_id=order.order_number)
         return None
 
     def fetch_article_data(self) -> Dict[int, Dict[str, str]]:
@@ -132,6 +149,12 @@ class AdminOrderProcessor:
         for item in order.items:
             ad = article_data.get(item.article_idx, {})
 
+            if not ad:
+                raise Exception(
+                    f"상품 {item.article_idx}({item.product_name})이 Admin 드롭다운에 없습니다. "
+                    f"Admin에 등록되지 않은 상품은 주문 등록할 수 없습니다."
+                )
+
             # 수량만큼 반복 등록 (Admin은 건별 등록 방식)
             for i in range(item.quantity):
                 form_data = {
@@ -156,7 +179,12 @@ class AdminOrderProcessor:
                     "g_goods_stock[]": ad.get('stock', '0'),
                 }
 
-                self._post_form("/m/customer/p_order_regist_ok.asp", form_data)
+                result = self._post_form("/m/customer/p_order_regist_ok.asp", form_data)
+
+                # Admin 응답 에러 체크
+                if "error" in result.lower():
+                    raise Exception(f"Admin 주문 등록 실패 - 상품: {item.product_name}, 응답: {result[:200]}")
+
                 if item.quantity > 1:
                     print(f"  [Admin] 주문 등록 {i+1}/{item.quantity}: {item.product_name}")
 
@@ -198,7 +226,7 @@ class AdminOrderProcessor:
             self.register_order(order, customer_idx)
 
             # 4. 성공 처리
-            order.status = 'completed'
+            order.status = 'awaiting_payment'
             order.admin_synced_at = datetime.now()
             order.error_message = None
             db_session.commit()
@@ -208,7 +236,7 @@ class AdminOrderProcessor:
                 'order_number': order.order_number,
                 'admin_customer_idx': customer_idx
             }
-            print(f"[Order] {order.order_number} → Admin 등록 완료 (customer_idx={customer_idx})")
+            log_event('info', 'order', f"주문 {order.order_number} Admin 등록 완료 (customer_idx={customer_idx})", related_id=order.order_number)
 
         except Exception as e:
             order.status = 'failed'
@@ -219,7 +247,7 @@ class AdminOrderProcessor:
                 'order_number': order.order_number,
                 'error': str(e)
             }
-            print(f"[Order] {order.order_number} → 실패: {e}")
+            log_event('error', 'order', f"주문 {order.order_number} Admin 등록 실패: {e}", detail=str(e), related_id=order.order_number)
 
         finally:
             db_session.close()

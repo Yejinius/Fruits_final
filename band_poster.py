@@ -19,7 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 from config import BAND_PREVIEW_URL, BAND_PRODUCTION_URL, SHOPPING_MALL_URL, IMAGES_DIR, DATA_DIR
-from models import get_session, Product, Category, init_db
+from models import get_session, Product, Category, init_db, log_event
 
 # Chrome 프로필 저장 경로 (로그인 세션 유지)
 CHROME_PROFILE_DIR = DATA_DIR / "chrome_profile"
@@ -288,7 +288,7 @@ class BandPoster:
             return post_url
 
         except Exception as e:
-            print(f"  게시물 작성 실패: {e}")
+            log_event('error', 'band', f"게시물 작성 실패: {e}", detail=f"band_url={band_url}")
             screenshot_path = IMAGES_DIR / "band_error_screenshot.png"
             self.driver.save_screenshot(str(screenshot_path))
             print(f"  스크린샷 저장: {screenshot_path}")
@@ -525,8 +525,11 @@ def band_post_preview(article_idx):
                 product.band_preview_posted_at = datetime.now()
                 product.band_preview_url = post_url
                 session.commit()
+                log_event('info', 'band', f"미리보기 게시 완료: {product.name}", related_id=str(article_idx))
             session.close()
             print(f"\n  미리보기 URL: {post_url}")
+        else:
+            log_event('error', 'band', f"미리보기 게시 실패: article_idx={article_idx}", related_id=str(article_idx))
 
         return post_url
 
@@ -578,9 +581,14 @@ def band_post_preview_all(category_code=None):
                     'name': product.name,
                     'preview_url': post_url
                 })
+            else:
+                log_event('error', 'band', f"미리보기 게시 실패: {product.name} (ID: {product.article_idx})", related_id=str(product.article_idx))
 
             time.sleep(3)
 
+        failed = len(products) - len(results)
+        if failed > 0:
+            log_event('warning', 'band', f"미리보기 일괄 게시: {len(results)}/{len(products)}개 성공, {failed}개 실패")
         print(f"\n미리보기 완료: {len(results)}/{len(products)}개 성공")
 
     except KeyboardInterrupt:
@@ -616,8 +624,11 @@ def band_post_confirm(article_idx):
                 product.band_posted_at = datetime.now()
                 product.band_post_url = post_url
                 session.commit()
+                log_event('info', 'band', f"본 밴드 게시 완료: {product.name}", related_id=str(article_idx))
             session.close()
             print(f"\n  본 밴드 게시 완료: {post_url}")
+        else:
+            log_event('error', 'band', f"본 밴드 게시 실패: article_idx={article_idx}", related_id=str(article_idx))
 
         return post_url
 

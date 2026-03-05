@@ -5,6 +5,10 @@ Aligo SMS 발송 모듈
 """
 import requests
 from config import ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER
+from models import log_event
+
+
+SMS_FOOTER = "(본 문자는 회신/유선연락이 불가능한 번호이오니, 카카오 오픈채팅(https://open.kakao.com/o/sNgjJoBb)으로 문의 주세요."
 
 
 class AligoSMS:
@@ -61,7 +65,10 @@ class AligoSMS:
             result = resp.json()
 
             success = result.get("result_code") == "1"
-            print(f"[SMS] {msg_type} → {receiver} | {'성공' if success else '실패'}: {result.get('message', '')}")
+            if success:
+                log_event('info', 'sms', f"SMS 발송 성공: {msg_type} → {receiver}")
+            else:
+                log_event('error', 'sms', f"SMS 발송 실패: {msg_type} → {receiver} - {result.get('message', '')}", detail=str(result))
 
             return {
                 'success': success,
@@ -69,7 +76,7 @@ class AligoSMS:
                 'response': result,
             }
         except Exception as e:
-            print(f"[SMS] 발송 실패: {e}")
+            log_event('error', 'sms', f"SMS 발송 예외: {receiver} - {e}", detail=str(e))
             return {'success': False, 'message': str(e)}
 
 
@@ -88,7 +95,9 @@ def build_order_received_msg(order) -> str:
         f"결제금액: {order.total_amount:,}원\n"
         f"\n"
         f"입금 확인 후 바로 발송해 드리겠습니다.\n"
-        f"감사합니다."
+        f"감사합니다.\n"
+        f"\n"
+        f"{SMS_FOOTER}"
     )
 
 
@@ -105,7 +114,9 @@ def build_payment_confirmed_msg(order) -> str:
         f"\n"
         f"입금이 확인되었습니다.\n"
         f"빠르게 발송 준비하겠습니다.\n"
-        f"감사합니다."
+        f"감사합니다.\n"
+        f"\n"
+        f"{SMS_FOOTER}"
     )
 
 
@@ -123,3 +134,28 @@ def send_payment_confirmed_sms(order) -> dict:
     sms = AligoSMS()
     msg = build_payment_confirmed_msg(order)
     return sms.send(order.customer_phone, msg, title="입금 확인 안내")
+
+
+def build_out_of_stock_msg(order, unavailable_items: list) -> str:
+    """품절 안내 메시지"""
+    items_text = ", ".join(unavailable_items)
+    return (
+        f"[Young Fresh Mall] 품절 안내\n"
+        f"\n"
+        f"주문번호: {order.order_number}\n"
+        f"품절 상품: {items_text}\n"
+        f"\n"
+        f"죄송합니다. 위 상품이 품절되어\n"
+        f"주문 처리가 어렵게 되었습니다.\n"
+        f"환불 안내를 위해 곧 연락드리겠습니다.\n"
+        f"불편을 드려 죄송합니다.\n"
+        f"\n"
+        f"{SMS_FOOTER}"
+    )
+
+
+def send_out_of_stock_sms(order, unavailable_items: list) -> dict:
+    """품절 안내 SMS 발송"""
+    sms = AligoSMS()
+    msg = build_out_of_stock_msg(order, unavailable_items)
+    return sms.send(order.customer_phone, msg, title="품절 안내")
