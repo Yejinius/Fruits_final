@@ -357,8 +357,8 @@ class AdminConnector:
 ```python
 # config.py 또는 환경 변수
 ADMIN_CREDENTIALS = {
-    "id": os.environ.get("ADMIN_ID", "REDACTED_ID"),
-    "password": os.environ.get("ADMIN_PW", "REDACTED_PW")
+    "id": os.environ.get("ADMIN_ID"),
+    "password": os.environ.get("ADMIN_PW")
 }
 ```
 

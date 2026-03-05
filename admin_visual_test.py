@@ -8,6 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify
 import re
+from config import ADMIN_ID, ADMIN_PW
 
 app = Flask(__name__)
 app.secret_key = 'admin_visual_test_secret_key'
@@ -86,11 +87,11 @@ def search_address_juso(keyword):
 SAMPLE_ORDER_DATA = {
     "depositor_name": "정예진",           # 입금자 이름
     "recipient_name": "정예진",           # 받으실 분 이름
-    "phone": "REDACTED_PHONE",            # 휴대폰
+    "phone": "010-0000-0000",            # 휴대폰 (테스트용)
     "zipcode": "02504",                   # 우편번호
     "address": "서울특별시 동대문구 서울시립대로 19 청계와이즈노벨리아", # 기본주소
     "address_detail": "101동 1002호",     # 상세주소
-    "cash_receipt_no": "REDACTED_PHONE",   # 현금영수증 번호
+    "cash_receipt_no": "010-0000-0000",   # 현금영수증 번호 (테스트용)
     "memo": "부재시 경비실에 맡겨주세요",   # 기타 요청사항
     "product_name": "2박스*제주/보배진/레드향(26과)-6kg내외",  # 옵션 상품
     "category_idx": "13",                 # 참외/귤종류/포도종류/유자 (Admin 카테고리)
@@ -340,8 +341,8 @@ def step1_login():
     html = fix_relative_urls(html)
 
     # 로그인 폼에 값 채우기
-    html = html.replace('name="m_id"', 'name="m_id" value="REDACTED_ID"')
-    html = html.replace('name="m_passwd"', 'name="m_passwd" value="REDACTED_PW"')
+    html = html.replace('name="m_id"', f'name="m_id" value="{ADMIN_ID}"')
+    html = html.replace('name="m_passwd"', f'name="m_passwd" value="{ADMIN_PW}"')
 
     # 폼 액션을 우리 서버로 변경
     html = html.replace('action="/m/include/asp/login_ok.asp"', 'action="/step/1/submit"')
@@ -356,7 +357,7 @@ def step1_login():
 @app.route('/step/1/submit')
 def step1_submit():
     """Step 1: 로그인 실행"""
-    success = admin.login("REDACTED_ID", "REDACTED_PW")
+    success = admin.login(ADMIN_ID, ADMIN_PW)
 
     if success:
         return redirect('/step/2')
@@ -368,7 +369,7 @@ def step1_submit():
 def step2_customer_form():
     """Step 2: 고객 등록 폼 - Daum Postcode 연동"""
     if not admin.logged_in:
-        admin.login("REDACTED_ID", "REDACTED_PW")
+        admin.login(ADMIN_ID, ADMIN_PW)
 
     html = admin.get_page("/m/customer/p_custom_regist.asp")
     html = fix_relative_urls(html)

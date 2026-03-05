@@ -297,7 +297,7 @@ flowchart TD
             <div class="description">
                 <p><strong>자동화 테스트 시나리오:</strong></p>
                 <ul>
-                    <li>Step 1: Admin 사이트 로그인 (REDACTED_ID / REDACTED_PW)</li>
+                    <li>Step 1: Admin 사이트 로그인 (환경변수 ADMIN_ID / ADMIN_PW)</li>
                     <li>Step 2: 고객 정보 자동 등록 (EUC-KR 인코딩 필수)</li>
                     <li>Step 2 Result: 등록된 고객 목록 확인</li>
                     <li>Step 3: 주문서 작성 (카테고리/상품 자동 선택, JavaScript 트리거)</li>
@@ -315,7 +315,7 @@ sequenceDiagram
     participant ADMIN as admin.open79.co.kr
 
     USER->>FLASK: Step 1 클릭
-    FLASK->>SESSION: login(REDACTED_ID, REDACTED_PW)
+    FLASK->>SESSION: login(ADMIN_ID, ADMIN_PW)
     SESSION->>ADMIN: POST /login_ok.asp<br/>EUC-KR
     ADMIN-->>SESSION: Set-Cookie: SESSION_ID
     SESSION-->>FLASK: 로그인 성공

@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, render_template_string, jsonify, request
 import json
+from config import ADMIN_ID, ADMIN_PW
 
 app = Flask(__name__)
 
@@ -439,7 +440,7 @@ def run_step(step):
 def step1_login():
     """Step 1: 로그인"""
     url = f"{admin_session.BASE_URL}/m/include/asp/login_ok.asp"
-    data = {"m_id": "REDACTED_ID", "m_passwd": "REDACTED_PW"}
+    data = {"m_id": ADMIN_ID, "m_passwd": ADMIN_PW}
 
     resp = admin_session.session.post(url, data=data)
 
@@ -452,7 +453,7 @@ def step1_login():
         "request": {
             "url": url,
             "method": "POST",
-            "data": {"m_id": "REDACTED_ID", "m_passwd": "****"}
+            "data": {"m_id": ADMIN_ID, "m_passwd": "****"}
         },
         "response": {
             "status_code": resp.status_code,

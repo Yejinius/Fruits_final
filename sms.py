@@ -3,6 +3,7 @@ Aligo SMS 발송 모듈
 - 주문 접수 시 고객에게 SMS 발송
 - 입금 확인 시 고객에게 SMS 발송
 """
+import re
 import requests
 from config import ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER
 from models import log_event
@@ -41,8 +42,11 @@ class AligoSMS:
             print("[SMS] Aligo API 키가 설정되지 않았습니다. config.py를 확인하세요.")
             return {'success': False, 'message': 'API 키 미설정'}
 
-        # 전화번호 하이픈 제거
+        # 전화번호 하이픈 제거 + 유효성 검증
         receiver = receiver.replace("-", "")
+        if not re.match(r'^01[016789]\d{7,8}$', receiver):
+            log_event('warning', 'sms', f"잘못된 전화번호 형식: {receiver}")
+            return {'success': False, 'message': f'잘못된 전화번호 형식: {receiver}'}
 
         # 메시지 길이에 따라 SMS/LMS 자동 결정
         msg_bytes = len(msg.encode('euc-kr', errors='ignore'))

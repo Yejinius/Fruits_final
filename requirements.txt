@@ -16,6 +16,7 @@ tqdm==4.66.1
 
 # 웹 프레임워크
 flask==3.0.2
+flask-limiter==3.5.1
 
 # 프로덕션 WSGI 서버
 gunicorn==22.0.0

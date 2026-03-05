@@ -73,7 +73,9 @@ ADMIN_ID = os.getenv("ADMIN_ID", "")
 ADMIN_PW = os.getenv("ADMIN_PW", "")
 
 # Flask
-FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
+FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
+if not FLASK_SECRET_KEY:
+    raise RuntimeError("FLASK_SECRET_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.")
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")
 FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
 

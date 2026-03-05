@@ -66,6 +66,16 @@ class AdminOrderProcessor:
             raise Exception(f"Admin GET 실패: {path} - {e}")
         return resp.content.decode('euc-kr', errors='ignore')
 
+    @staticmethod
+    def _extract_c_goods_idx(row) -> Optional[str]:
+        """테이블 행에서 c_goods_idx 추출"""
+        btn = row.find('span', class_='btn_m_white01')
+        if btn and btn.get('onclick'):
+            match = re.search(r"c_goods_idx=(\d+)", btn.get('onclick'))
+            if match:
+                return match.group(1)
+        return None
+
     def register_customer(self, order: Order) -> Optional[str]:
         """
         Admin에 고객 등록
@@ -98,25 +108,19 @@ class AdminOrderProcessor:
         rows = soup.find_all('tr', class_='tr_class')
         for row in rows:
             row_text = row.get_text(strip=True)
-            # 고객명과 전화번호 둘 다 포함된 행 찾기
             if order.customer_name in row_text and phone_digits in row_text:
-                order_btn = row.find('span', class_='btn_m_white01')
-                if order_btn and order_btn.get('onclick'):
-                    match = re.search(r"c_goods_idx=(\d+)", order_btn.get('onclick'))
-                    if match:
-                        return match.group(1)
+                idx = self._extract_c_goods_idx(row)
+                if idx:
+                    return idx
 
         # 정확한 매칭 실패 시 첫 번째 행 fallback (기존 동작)
         if rows:
-            first_row = rows[0]
-            order_btn = first_row.find('span', class_='btn_m_white01')
-            if order_btn and order_btn.get('onclick'):
-                match = re.search(r"c_goods_idx=(\d+)", order_btn.get('onclick'))
-                if match:
-                    log_event('warning', 'order',
-                              f"고객 정확 매칭 실패, 첫 번째 행 사용: {order.customer_name}",
-                              related_id=order.order_number)
-                    return match.group(1)
+            idx = self._extract_c_goods_idx(rows[0])
+            if idx:
+                log_event('warning', 'order',
+                          f"고객 정확 매칭 실패, 첫 번째 행 사용: {order.customer_name}",
+                          related_id=order.order_number)
+                return idx
 
         log_event('error', 'order', f"고객 등록 후 customer_idx 추출 실패: {order.customer_name}", related_id=order.order_number)
         return None

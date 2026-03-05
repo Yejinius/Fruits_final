@@ -32,7 +32,7 @@ ALLOWED_TAGS = {'b', 'strong', 'em', 'i', 'u', 'br', 'p', 'div', 'span',
                 'font', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                 'ul', 'ol', 'li', 'a', 'sub', 'sup', 'hr', 'table',
                 'tr', 'td', 'th', 'thead', 'tbody'}
-ALLOWED_ATTRS = {'style', 'href', 'target', 'color', 'size', 'face'}
+ALLOWED_ATTRS = {'href', 'target', 'color', 'size', 'face'}
 
 
 def sanitize_html(html_str: str) -> tuple:
@@ -48,6 +48,11 @@ def sanitize_html(html_str: str) -> tuple:
             for attr in attrs:
                 if attr not in ALLOWED_ATTRS:
                     del tag[attr]
+            # href에서 javascript: 프로토콜 차단
+            if 'href' in tag.attrs:
+                href = tag['href'].strip().lower()
+                if href.startswith('javascript:') or href.startswith('data:'):
+                    del tag['href']
     cleaned = str(s)
     plain = s.get_text(strip=True)
     return cleaned, plain

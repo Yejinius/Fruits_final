@@ -3,6 +3,8 @@ Young Fresh Mall - 과일 공동구매 쇼핑몰
 """
 import json
 from flask import Flask, render_template_string, request, jsonify, redirect, url_for
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from sqlalchemy.orm import joinedload
 from models import get_session, Product, Category, Order, OrderItem, log_event
 from config import CATEGORIES, FLASK_SECRET_KEY, FLASK_HOST, FLASK_PORT
@@ -12,6 +14,7 @@ from payment_checker import payment_checker
 
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
+limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 
 # 공통 스타일
 COMMON_STYLES = """
@@ -1268,22 +1271,49 @@ def order_form(article_idx):
     return render_template_string(ORDER_TEMPLATE, product=product, categories=CATEGORIES, quantity=quantity)
 
 
+def _validate_phone(phone: str) -> bool:
+    """한국 휴대전화 번호 검증 (010-XXXX-XXXX 또는 01012345678)"""
+    import re
+    cleaned = phone.replace("-", "")
+    return bool(re.match(r'^01[016789]\d{7,8}$', cleaned))
+
+
 @app.route('/order/submit', methods=['POST'])
+@limiter.limit("30 per minute")
 def order_submit():
     """주문 접수 처리"""
-    article_idx = int(request.form['article_idx'])
-    quantity = int(request.form.get('quantity', 1))
+    # 입력값 검증
+    customer_name = request.form.get('customer_name', '').strip()
+    customer_phone = request.form.get('customer_phone', '').strip()
+
+    if not customer_name or len(customer_name) > 50:
+        return jsonify({'error': '이름을 올바르게 입력해주세요 (1~50자)'}), 400
+    if not _validate_phone(customer_phone):
+        return jsonify({'error': '올바른 휴대전화 번호를 입력해주세요'}), 400
+
+    try:
+        article_idx = int(request.form['article_idx'])
+        quantity = int(request.form.get('quantity', 1))
+    except (ValueError, KeyError):
+        return jsonify({'error': '잘못된 상품 정보입니다'}), 400
+
+    if quantity < 1 or quantity > 99:
+        return jsonify({'error': '수량은 1~99 사이로 입력해주세요'}), 400
+
+    memo = request.form.get('memo') or None
+    if memo and len(memo) > 500:
+        return jsonify({'error': '메모는 500자 이내로 입력해주세요'}), 400
 
     order = create_order(
-        customer_name=request.form['customer_name'],
-        customer_phone=request.form['customer_phone'],
+        customer_name=customer_name,
+        customer_phone=customer_phone,
         zipcode=request.form.get('zipcode', ''),
         address=request.form.get('address', ''),
         address_detail=request.form.get('address_detail', ''),
         items=[{'article_idx': article_idx, 'quantity': quantity}],
         depositor_name=request.form.get('depositor_name') or None,
         cash_receipt_no=request.form.get('cash_receipt_no') or None,
-        memo=request.form.get('memo') or None
+        memo=memo
     )
 
     # Admin 자동 등록 (백그라운드로 처리하는 것이 이상적이나, 여기선 동기 처리)
@@ -1335,6 +1365,7 @@ def order_complete(order_number):
 # === 주문 관리 API ===
 
 @app.route('/api/orders/<order_number>/confirm-payment', methods=['POST'])
+@limiter.limit("30 per minute")
 def api_confirm_payment(order_number):
     """수동 입금 확인 → DB 업데이트 + SMS 발송"""
     result = payment_checker.confirm_payment_manual(order_number)
@@ -1342,6 +1373,7 @@ def api_confirm_payment(order_number):
 
 
 @app.route('/api/payments/check', methods=['POST'])
+@limiter.limit("10 per minute")
 def api_check_payments():
     """수동 입금 확인 체크 실행 (Admin 주문 목록 스크래핑)"""
     result = payment_checker.check_payments()

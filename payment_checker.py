@@ -12,6 +12,7 @@ from typing import List, Dict, Optional
 import requests
 from bs4 import BeautifulSoup
 
+from sqlalchemy.orm import joinedload
 from models import get_session, Order, log_event
 from config import ADMIN_BASE_URL, ADMIN_ID, ADMIN_PW
 from sms import send_payment_confirmed_sms
@@ -111,7 +112,9 @@ class PaymentChecker:
         Returns: {'checked': N, 'confirmed': N, 'still_pending': N}
         """
         db_session = get_session()
-        awaiting_orders = db_session.query(Order).filter(
+        awaiting_orders = db_session.query(Order).options(
+            joinedload(Order.items)
+        ).filter(
             Order.status == 'awaiting_payment',
             Order.payment_confirmed_at == None
         ).order_by(Order.created_at.asc()).all()
@@ -224,7 +227,9 @@ class PaymentChecker:
     def confirm_payment_manual(self, order_number: str) -> Dict:
         """수동 입금 확인 (API에서 호출) — Admin 입금 상태 확인 후 처리"""
         db_session = get_session()
-        order = db_session.query(Order).filter_by(order_number=order_number).first()
+        order = db_session.query(Order).options(
+            joinedload(Order.items)
+        ).filter_by(order_number=order_number).first()
 
         if not order:
             db_session.close()
@@ -241,7 +246,6 @@ class PaymentChecker:
         # Admin에서 실제 입금 상태 확인
         admin_orders = self._fetch_admin_orders()
         paid_entries = [ao for ao in admin_orders if ao['payment_status'] == 'paid']
-        _ = order.items  # lazy load for matching
 
         if self._match_order_to_admin(order, paid_entries) is None:
             db_session.close()

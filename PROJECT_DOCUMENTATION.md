@@ -617,7 +617,7 @@ Product.is_active == True AND Product.band_posted_at == None
 
 Young Fresh Mall 주문 → Admin 사이트 자동 등록:
 
-1. **로그인**: `POST /m/include/asp/login_ok.asp` (REDACTED_ID/REDACTED_PW)
+1. **로그인**: `POST /m/include/asp/login_ok.asp` (환경변수 ADMIN_ID/ADMIN_PW 사용)
 2. **고객 등록**: `POST /m/customer/p_custom_regist_ok.asp` → `customer_idx` 확보
 3. **상품 데이터 조회**: `js_article.asp`에서 `sell_d`, `sell_s`, `stock` 등 가져오기
 4. **주문 등록**: `POST /m/customer/p_order_regist_ok.asp`
@@ -738,8 +738,8 @@ python main.py band-confirm 40474
 
 ### Admin 사이트
 - URL: http://admin.open79.co.kr
-- ID: REDACTED_ID
-- PW: REDACTED_PW
+- ID: 환경변수 ADMIN_ID
+- PW: 환경변수 ADMIN_PW
 
 ### 네이버 밴드
 - Chrome 프로필(`data/chrome_profile/`)에 세션 저장

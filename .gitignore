@@ -12,6 +12,7 @@ venv/
 data/products.db
 data/images/
 data/chrome_profile/
+data/band_cookies.json
 
 # IDE
 .idea/

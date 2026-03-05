@@ -24,7 +24,7 @@
 
 ### Admin 사이트 (admin.open79.co.kr)
 - 인코딩: EUC-KR (폼 전송 시 반드시 인코딩 필요)
-- 로그인: POST /m/include/asp/login_ok.asp (REDACTED_ID / REDACTED_PW)
+- 로그인: POST /m/include/asp/login_ok.asp (환경변수 ADMIN_ID / ADMIN_PW 사용)
 - js_article.asp 경로: `/include/js/js_article.asp` (로그인 필요)
   - 변수명: j_article_idx, j_cate_idx, j_article_price, j_article_stock 등
   - 값 형식: `j_article_idx[0] = '42611';` (싱글쿼트, 배열 인덱스 기반)
