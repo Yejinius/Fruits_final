@@ -127,29 +127,34 @@ class BandPoster:
         try:
             input(">>> 로그인 완료 후 Enter를 누르세요... ")
         except EOFError:
-            print(">>> 자동 대기 모드 (로그인 감지 시 자동 종료, 최대 3분)")
-            for i in range(36):
-                time.sleep(5)
-                current_url = self.driver.current_url
-                if "auth.band.us" not in current_url and "login" not in current_url:
-                    print(f"\n  로그인 감지! ({(i+1)*5}초)")
-                    break
-            else:
-                print("\n  3분 타임아웃.")
-
-        current_url = self.driver.current_url
-        print(f"  현재 URL: {current_url}")
-
-        if "auth.band.us" in current_url or "login" in current_url:
-            print("  아직 로그인되지 않은 것 같습니다. 다시 시도해주세요.")
-        else:
-            # 밴드 페이지에도 접근해서 페이지별 쿠키까지 저장
+            # SSH 등 stdin 없는 환경 → 로그인 완료를 밴드 페이지 글쓰기 버튼으로 감지
             test_url = BAND_PREVIEW_URL or self.BAND_HOME
-            self.driver.get(test_url)
-            time.sleep(3)
+            print(f">>> 자동 대기 모드 (최대 5분)")
+            print(f"  서버 화면의 Chrome에서 밴드 로그인 후 {test_url} 에 접속하세요.")
+            for i in range(60):  # 5초 × 60 = 5분
+                time.sleep(5)
+                try:
+                    self.driver.get(test_url)
+                    time.sleep(5)
+                    self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
+                    print(f"\n  로그인+글쓰기 권한 확인! ({(i+1)*10}초)")
+                    break
+                except Exception:
+                    print(f"  대기 중... ({(i+1)*10}초)")
+            else:
+                print("\n  5분 타임아웃.")
+
+        # 로그인 상태 최종 확인 — 밴드 페이지에서 글쓰기 버튼
+        test_url = BAND_PREVIEW_URL or self.BAND_HOME
+        self.driver.get(test_url)
+        time.sleep(5)
+        try:
+            self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
             self._save_cookies()
             print("\n  로그인 세션이 저장되었습니다.")
             print("  이제 band-post 명령으로 게시물을 올릴 수 있습니다.")
+        except Exception:
+            print("  글쓰기 권한이 없습니다. 밴드 페이지 관리자 계정으로 로그인했는지 확인하세요.")
 
         self.close()
 
