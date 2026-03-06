@@ -217,6 +217,13 @@ class OS79Crawler:
             detail_content = []
             detail_images = []
 
+            def _append_text(text):
+                """텍스트를 detail_content에 추가 (연속 텍스트는 병합)"""
+                if detail_content and detail_content[-1]['type'] == 'text':
+                    detail_content[-1]['content'] += text
+                else:
+                    detail_content.append({'type': 'text', 'content': text})
+
             def extract_content(element):
                 """재귀적으로 텍스트와 이미지 추출 (HTML 서식 보존)"""
                 for child in element.children:
@@ -227,6 +234,12 @@ class OS79Crawler:
                             detail_content.append({'type': 'image', 'url': full_url})
                             if full_url not in detail_images:
                                 detail_images.append(full_url)
+                    elif child.name == 'br':
+                        # <br> 태그 → 줄바꿈 보존
+                        _append_text('\n')
+                        # html.parser가 <br> 안에 후속 콘텐츠를 넣는 경우 재귀 탐색
+                        if list(child.children):
+                            extract_content(child)
                     elif child.name is not None:
                         # 이미지가 포함된 요소는 재귀 탐색
                         if child.find('img'):
@@ -235,18 +248,12 @@ class OS79Crawler:
                             # 이미지 없는 요소 → HTML 서식 보존하여 캡처
                             cleaned, plain = sanitize_html(str(child))
                             if plain:
-                                if detail_content and detail_content[-1]['type'] == 'text':
-                                    detail_content[-1]['content'] += cleaned
-                                else:
-                                    detail_content.append({'type': 'text', 'content': cleaned})
+                                _append_text(cleaned)
                     else:
                         # 텍스트 노드
                         text = str(child).strip()
                         if text:
-                            if detail_content and detail_content[-1]['type'] == 'text':
-                                detail_content[-1]['content'] += text
-                            else:
-                                detail_content.append({'type': 'text', 'content': text})
+                            _append_text(text)
 
             extract_content(detail_section)
 
