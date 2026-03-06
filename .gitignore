@@ -19,6 +19,9 @@ data/band_cookies.json
 .vscode/
 *.swp
 
+# Claude 컨텍스트 (민감 정보 포함)
+MEMORY.md
+
 # OS
 .DS_Store
 Thumbs.db
