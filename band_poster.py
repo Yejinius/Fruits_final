@@ -127,20 +127,23 @@ class BandPoster:
         try:
             input(">>> 로그인 완료 후 Enter를 누르세요... ")
         except EOFError:
-            # SSH 등 stdin 없는 환경 → 로그인 완료를 밴드 페이지 글쓰기 버튼으로 감지
+            # SSH 환경: 유저가 Chrome에서 직접 로그인+밴드 페이지 이동할 때까지 대기
+            # 페이지를 강제 이동하지 않고, 현재 URL/상태만 확인
             test_url = BAND_PREVIEW_URL or self.BAND_HOME
             print(f">>> 자동 대기 모드 (최대 5분)")
-            print(f"  서버 화면의 Chrome에서 밴드 로그인 후 {test_url} 에 접속하세요.")
+            print(f"  1. Chrome에서 로그인 버튼을 클릭하세요")
+            print(f"  2. 네이버 로그인 완료 후 {test_url} 로 이동하세요")
+            print(f"  3. 글쓰기 버튼이 보이면 자동 감지됩니다\n")
             for i in range(60):  # 5초 × 60 = 5분
                 time.sleep(5)
                 try:
-                    self.driver.get(test_url)
-                    time.sleep(5)
+                    # 현재 페이지에 글쓰기 버튼이 있는지만 확인 (페이지 이동 안 함)
                     self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
-                    print(f"\n  로그인+글쓰기 권한 확인! ({(i+1)*10}초)")
+                    print(f"\n  로그인+글쓰기 권한 확인! ({(i+1)*5}초)")
                     break
                 except Exception:
-                    print(f"  대기 중... ({(i+1)*10}초)")
+                    if (i+1) % 6 == 0:  # 30초마다 상태 출력
+                        print(f"  대기 중... ({(i+1)*5}초) URL: {self.driver.current_url[:60]}")
             else:
                 print("\n  5분 타임아웃.")
 
