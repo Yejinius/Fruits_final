@@ -670,12 +670,21 @@ class OS79Crawler:
 
         return {'notified': notified, 'skipped': skipped}
 
+    def _get_active_product_ids(self):
+        """활성 상품 article_idx 집합 반환"""
+        return set(
+            row[0] for row in self.db_session.query(Product.article_idx).filter(Product.is_active == True).all()
+        )
+
     def crawl_all(self, download_images: bool = True) -> Dict[str, Dict[str, int]]:
         """모든 카테고리 크롤링"""
         # DB 초기화
         init_db()
         self.db_session = get_session()
         self.init_categories()
+
+        # 크롤링 전 활성 상품 ID 기록 (신규 상품 감지용)
+        pre_crawl_active = self._get_active_product_ids()
 
         crawl_started_at = datetime.now()
         all_results = {}
@@ -710,17 +719,62 @@ class OS79Crawler:
             oos_result = self.notify_out_of_stock_orders(all_deactivated_ids)
             all_results['oos_notifications'] = oos_result
 
+        # 신규 상품 감지
+        newly_added_ids = self._get_active_product_ids() - pre_crawl_active
+
+        # 미게시 상품 목록 (번호 매핑용, 신규 상품이 있을 때만 전체 로드)
+        from band_poster import get_unposted_products
+        pending = get_unposted_products()
+        pending_map = {p.article_idx: i for i, p in enumerate(pending, 1)} if newly_added_ids else {}
+
         # 텔레그램 크롤링 완료 알림
         total_success = sum(r.get('success', 0) for c, r in all_results.items() if c in CATEGORIES)
         total_fail = sum(r.get('fail', 0) for c, r in all_results.items() if c in CATEGORIES)
         deactivated = len(all_deactivated_ids)
         elapsed = (datetime.now() - crawl_started_at).total_seconds()
-        msg = f"[크롤링 완료] {total_success}개 성공"
+        summary = f"[크롤링 완료] {total_success}개 성공"
         if total_fail:
-            msg += f", {total_fail}개 실패"
+            summary += f", {total_fail}개 실패"
         if deactivated:
-            msg += f", {deactivated}개 비활성화"
-        msg += f" ({elapsed:.0f}초)"
+            summary += f", {deactivated}개 비활성화"
+        summary += f" ({elapsed:.0f}초)"
+        msg_lines = [summary]
+
+        # 비활성화 상품 상세 (최대 15개)
+        if all_deactivated_ids:
+            deactivated_products = self.db_session.query(Product).options(
+                joinedload(Product.category)
+            ).filter(
+                Product.article_idx.in_(all_deactivated_ids)
+            ).all()
+            msg_lines.append(f"\n📤 비활성화 {len(deactivated_products)}개:")
+            for p in deactivated_products[:15]:
+                cat_name = p.category.name if p.category else "미분류"
+                msg_lines.append(f"  - {p.name[:30]} ({cat_name})")
+            if len(deactivated_products) > 15:
+                msg_lines.append(f"  ... 외 {len(deactivated_products) - 15}개")
+
+        # 신규 상품 상세 (미게시 리스트 번호 포함, 최대 15개)
+        if newly_added_ids:
+            new_products = self.db_session.query(Product).options(
+                joinedload(Product.category)
+            ).filter(
+                Product.article_idx.in_(newly_added_ids)
+            ).all()
+            msg_lines.append(f"\n📥 신규 상품 {len(new_products)}개:")
+            for p in sorted(new_products, key=lambda x: pending_map.get(x.article_idx, 9999))[:15]:
+                num = pending_map.get(p.article_idx)
+                cat_name = p.category.name if p.category else "미분류"
+                price = f"{p.price:,}원" if p.price else "가격미정"
+                if num:
+                    msg_lines.append(f"  #{num}. {p.name[:25]} ({cat_name}, {price})")
+                else:
+                    msg_lines.append(f"  - {p.name[:25]} ({cat_name}, {price})")
+            if len(new_products) > 15:
+                msg_lines.append(f"  ... 외 {len(new_products) - 15}개")
+
+        msg_lines.append(f"\n📋 미게시: {len(pending)}개")
+        msg = "\n".join(msg_lines)
         try:
             from telegram_bot import send_message
             send_message(msg)

@@ -465,9 +465,8 @@ def get_unposted_products(category_code=None):
             query = query.filter(Product.category_id == cat.id)
 
     products = query.all()
-    # 세션 닫기 전에 category 정보 미리 로드
-    for p in products:
-        _ = p.category
+    # 카테고리 코드 → 이름 순 정렬 (번호 일관성, category도 이 과정에서 로드됨)
+    products.sort(key=lambda p: (p.category.code if p.category else 'Z', p.name))
     session.close()
     return products
 

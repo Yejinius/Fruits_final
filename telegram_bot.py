@@ -5,6 +5,7 @@ Telegram Bot — YoungfreshBot
 - /start, /status, /pending 명령
 """
 import json
+import time
 import threading
 import traceback
 from datetime import datetime
@@ -103,6 +104,7 @@ class TelegramBotServer:
     def __init__(self):
         self.offset = 0
         self.running = False
+        self._posting_active = False
 
     def start(self):
         """봇 polling 시작 (blocking — 별도 스레드에서 호출)"""
@@ -148,7 +150,7 @@ class TelegramBotServer:
     def _handle_message(self, message):
         """텍스트 명령 처리"""
         chat_id = message["chat"]["id"]
-        text = message.get("text", "")
+        text = message.get("text", "").strip()
 
         if text == "/start":
             self._cmd_start(chat_id)
@@ -156,6 +158,8 @@ class TelegramBotServer:
             self._cmd_status(chat_id)
         elif text == "/pending":
             self._cmd_pending(chat_id)
+        elif text == "/post" or text.startswith("/post "):
+            self._cmd_post(chat_id, text)
         elif text == "/help":
             self._cmd_help(chat_id)
 
@@ -182,7 +186,8 @@ class TelegramBotServer:
                 "🍎 <b>Young Fresh Mall 알림 봇</b>\n\n"
                 "명령어:\n"
                 "/status — 서버 상태 확인\n"
-                "/pending — 승인 대기 상품\n"
+                "/pending — 미게시 상품 (카테고리별)\n"
+                "/post 번호 — 테스트 밴드 게시\n"
                 "/help — 도움말"
             ),
             "parse_mode": "HTML",
@@ -211,28 +216,194 @@ class TelegramBotServer:
         except Exception as e:
             _tg_post("sendMessage", {"chat_id": chat_id, "text": f"❌ 상태 조회 실패: {e}"})
 
+    @staticmethod
+    def _send_long_message(chat_id, text, parse_mode="HTML"):
+        """긴 메시지 분할 전송 (4000자 기준)"""
+        if len(text) <= 4000:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": parse_mode})
+            return
+        lines = text.split('\n')
+        chunk = ""
+        for line in lines:
+            if len(chunk) + len(line) + 1 > 4000:
+                if chunk:
+                    _tg_post("sendMessage", {"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode})
+                chunk = line
+            else:
+                chunk = chunk + '\n' + line if chunk else line
+        if chunk:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode})
+
     def _cmd_pending(self, chat_id):
+        """미게시 상품 카테고리별 분류 표시"""
         try:
             from band_poster import get_unposted_products
             products = get_unposted_products()
 
             if not products:
-                _tg_post("sendMessage", {"chat_id": chat_id, "text": "✅ 승인 대기 상품이 없습니다."})
+                _tg_post("sendMessage", {"chat_id": chat_id, "text": "✅ 모든 상품이 밴드에 게시되었습니다."})
                 return
 
-            lines = [f"📋 <b>미게시 상품 ({len(products)}개)</b>\n"]
-            for i, p in enumerate(products[:20], 1):
-                lines.append(f"{i}. {p.name} ({p.price:,}원)")
-            if len(products) > 20:
-                lines.append(f"\n... 외 {len(products) - 20}개")
+            # 카테고리별 그룹핑 (전체 넘버링 유지)
+            cat_groups = {}
+            for i, p in enumerate(products, 1):
+                cat_name = p.category.name if p.category else "미분류"
+                cat_code = p.category.code if p.category else "Z"
+                cat_groups.setdefault((cat_code, cat_name), []).append((i, p))
 
-            _tg_post("sendMessage", {
-                "chat_id": chat_id,
-                "text": "\n".join(lines),
-                "parse_mode": "HTML",
-            })
+            lines = [f"📋 <b>미게시 상품 ({len(products)}개)</b>"]
+            for (cat_code, cat_name), items in sorted(cat_groups.items()):
+                lines.append(f"\n<b>[{cat_name}]</b> ({len(items)}개)")
+                for num, p in items:
+                    price = f"{p.price:,}원" if p.price else "가격미정"
+                    lines.append(f"  {num}. {p.name[:35]} ({price})")
+
+            lines.append(f"\n💡 <code>/post 번호</code>로 테스트 게시")
+            lines.append(f"예: <code>/post 1 3 5-8</code>")
+
+            self._send_long_message(chat_id, "\n".join(lines))
         except Exception as e:
             _tg_post("sendMessage", {"chat_id": chat_id, "text": f"❌ 조회 실패: {e}"})
+
+    @staticmethod
+    def _parse_numbers(text):
+        """'/post 1 3 5-8' → [1, 3, 5, 6, 7, 8]"""
+        nums = set()
+        text = text.split(maxsplit=1)[1] if ' ' in text else ""
+        for part in text.replace(',', ' ').split():
+            if '-' in part:
+                try:
+                    start, end = part.split('-', 1)
+                    for n in range(int(start), int(end) + 1):
+                        nums.add(n)
+                except ValueError:
+                    pass
+            else:
+                try:
+                    nums.add(int(part))
+                except ValueError:
+                    pass
+        return sorted(nums)
+
+    def _cmd_post(self, chat_id, text):
+        """번호 지정으로 테스트 밴드 게시"""
+        if self._posting_active:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": "⏳ 이미 게시 작업이 진행 중입니다."})
+            return
+
+        nums = self._parse_numbers(text)
+        if not nums:
+            _tg_post("sendMessage", {
+                "chat_id": chat_id,
+                "text": "사용법: <code>/post 번호</code>\n예: <code>/post 1 3 5-8</code>\n\n/pending에서 번호를 확인하세요.",
+                "parse_mode": "HTML",
+            })
+            return
+
+        try:
+            from band_poster import get_unposted_products
+            products = get_unposted_products()
+        except Exception as e:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": f"❌ 상품 목록 조회 실패: {e}"})
+            return
+
+        targets = []
+        invalid = []
+        for n in nums:
+            if 1 <= n <= len(products):
+                targets.append((n, products[n - 1]))
+            else:
+                invalid.append(n)
+
+        if not targets:
+            _tg_post("sendMessage", {
+                "chat_id": chat_id,
+                "text": f"❌ 유효한 상품 번호가 없습니다. (범위: 1-{len(products)})",
+            })
+            return
+
+        target_names = "\n".join(f"  #{n}. {p.name[:30]}" for n, p in targets)
+        msg = f"⏳ <b>{len(targets)}개 상품 테스트 밴드 게시 시작</b>\n\n{target_names}"
+        if invalid:
+            msg += f"\n\n⚠️ 유효하지 않은 번호: {', '.join(str(n) for n in invalid)}"
+        _tg_post("sendMessage", {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
+
+        self._posting_active = True
+        threading.Thread(
+            target=self._post_products_thread,
+            args=(chat_id, targets),
+            daemon=True,
+        ).start()
+
+    def _post_products_thread(self, chat_id, targets):
+        """백그라운드에서 밴드 게시물 생성 + 승인 요청"""
+        poster = None
+        db_session = None
+        try:
+            from band_poster import BandPoster
+            from config import BAND_PREVIEW_URL
+            from models import get_session, Product
+
+            if not BAND_PREVIEW_URL:
+                _tg_post("sendMessage", {"chat_id": chat_id, "text": "❌ BAND_PREVIEW_URL이 설정되지 않았습니다."})
+                return
+
+            poster = BandPoster(headless=True)
+            poster._init_driver()
+            if not poster.check_login():
+                _tg_post("sendMessage", {"chat_id": chat_id, "text": "❌ 밴드 로그인이 필요합니다. band-login을 먼저 실행하세요."})
+                return
+
+            db_session = get_session()
+            success = 0
+            failed = 0
+
+            for i, (num, product) in enumerate(targets, 1):
+                _tg_post("sendMessage", {
+                    "chat_id": chat_id,
+                    "text": f"📝 [{i}/{len(targets)}] #{num}. {product.name[:30]} 게시 중...",
+                })
+
+                post_url = poster.post_product(BAND_PREVIEW_URL, product.article_idx)
+
+                if post_url:
+                    p = db_session.query(Product).filter_by(article_idx=product.article_idx).first()
+                    if p:
+                        p.band_preview_posted_at = datetime.now()
+                        p.band_preview_url = post_url
+                        db_session.commit()
+
+                    send_band_approval_request(
+                        product.article_idx,
+                        product.name,
+                        product.price or 0,
+                        post_url,
+                        product.main_image_url,
+                    )
+                    success += 1
+                else:
+                    _tg_post("sendMessage", {
+                        "chat_id": chat_id,
+                        "text": f"❌ #{num}. {product.name[:30]} 게시 실패",
+                    })
+                    failed += 1
+
+                if i < len(targets):
+                    time.sleep(3)
+
+            msg = f"✅ <b>테스트 밴드 게시 완료</b>\n성공: {success}개"
+            if failed:
+                msg += f", 실패: {failed}개"
+            msg += "\n\n각 상품의 승인 요청을 확인하세요."
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
+        except Exception as e:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": f"❌ 게시 중 에러: {e}"})
+        finally:
+            if db_session:
+                db_session.close()
+            if poster:
+                poster.close()
+            self._posting_active = False
 
     def _cmd_help(self, chat_id):
         _tg_post("sendMessage", {
@@ -240,7 +411,9 @@ class TelegramBotServer:
             "text": (
                 "📖 <b>명령어 목록</b>\n\n"
                 "/status — 서버 상태 (상품 수, 주문 수)\n"
-                "/pending — 밴드 미게시 상품 목록\n"
+                "/pending — 밴드 미게시 상품 (카테고리별)\n"
+                "/post 번호 — 테스트 밴드 게시\n"
+                "  예: <code>/post 1 3 5-8</code>\n"
                 "/help — 이 도움말\n\n"
                 "밴드 승인 요청이 오면 ✅/❌ 버튼으로 응답하세요."
             ),
