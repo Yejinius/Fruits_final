@@ -19,7 +19,8 @@ from config import (
     CATEGORIES, HEADERS, REQUEST_DELAY_MIN, REQUEST_DELAY_MAX,
     REQUEST_TIMEOUT, MAX_RETRIES, IMAGES_DIR,
     USER_AGENTS, BLOCK_BACKOFF_BASE, BLOCK_BACKOFF_MAX,
-    ADMIN_BASE_URL, ADMIN_ID, ADMIN_PW
+    ADMIN_BASE_URL, ADMIN_ID, ADMIN_PW,
+    SELLER_KAKAO_URL, OUR_KAKAO_URL
 )
 from models import (
     init_db, get_session,
@@ -238,7 +239,7 @@ class OS79Crawler:
                         # <br> 태그 → 줄바꿈 보존
                         _append_text('\n')
                         # html.parser가 <br> 안에 후속 콘텐츠를 넣는 경우 재귀 탐색
-                        if list(child.children):
+                        if next(child.children, None) is not None:
                             extract_content(child)
                     elif child.name is not None:
                         # 이미지가 포함된 요소는 재귀 탐색
@@ -258,8 +259,6 @@ class OS79Crawler:
             extract_content(detail_section)
 
             # 빈 텍스트 제거 및 정리 + 원판매자 카카오 URL → 우리 URL 교체
-            SELLER_KAKAO_URL = "https://open.kakao.com/o/gF7nJ96h"
-            OUR_KAKAO_URL = "https://open.kakao.com/o/sNgjJoBb"
             for item in detail_content:
                 if item['type'] == 'text':
                     item['content'] = item['content'].replace(SELLER_KAKAO_URL, OUR_KAKAO_URL)
@@ -712,18 +711,18 @@ class OS79Crawler:
             all_results['oos_notifications'] = oos_result
 
         # 텔레그램 크롤링 완료 알림
+        total_success = sum(r.get('success', 0) for c, r in all_results.items() if c in CATEGORIES)
+        total_fail = sum(r.get('fail', 0) for c, r in all_results.items() if c in CATEGORIES)
+        deactivated = len(all_deactivated_ids)
+        elapsed = (datetime.now() - crawl_started_at).total_seconds()
+        msg = f"[크롤링 완료] {total_success}개 성공"
+        if total_fail:
+            msg += f", {total_fail}개 실패"
+        if deactivated:
+            msg += f", {deactivated}개 비활성화"
+        msg += f" ({elapsed:.0f}초)"
         try:
             from telegram_bot import send_message
-            total_success = sum(r.get('success', 0) for c, r in all_results.items() if c in CATEGORIES)
-            total_fail = sum(r.get('fail', 0) for c, r in all_results.items() if c in CATEGORIES)
-            deactivated = len(all_deactivated_ids)
-            elapsed = (datetime.now() - crawl_started_at).total_seconds()
-            msg = f"[크롤링 완료] {total_success}개 성공"
-            if total_fail:
-                msg += f", {total_fail}개 실패"
-            if deactivated:
-                msg += f", {deactivated}개 비활성화"
-            msg += f" ({elapsed:.0f}초)"
             send_message(msg)
         except Exception:
             pass

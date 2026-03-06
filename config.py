@@ -62,6 +62,10 @@ BAND_PREVIEW_URL = os.getenv("BAND_PREVIEW_URL", "https://band.us/page/101768540
 BAND_PRODUCTION_URL = os.getenv("BAND_PRODUCTION_URL", "")
 SHOPPING_MALL_URL = os.getenv("SHOPPING_MALL_URL", "https://youngfresh.net")
 
+# 카카오 오픈채팅
+OUR_KAKAO_URL = "https://open.kakao.com/o/sNgjJoBb"
+SELLER_KAKAO_URL = "https://open.kakao.com/o/gF7nJ96h"
+
 # Aligo SMS 설정 (https://smartsms.aligo.in)
 ALIGO_API_KEY = os.getenv("ALIGO_API_KEY", "")
 ALIGO_USER_ID = os.getenv("ALIGO_USER_ID", "")

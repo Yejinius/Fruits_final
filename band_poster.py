@@ -18,7 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-from config import BAND_PREVIEW_URL, BAND_PRODUCTION_URL, SHOPPING_MALL_URL, IMAGES_DIR, DATA_DIR
+from config import BAND_PREVIEW_URL, BAND_PRODUCTION_URL, SHOPPING_MALL_URL, IMAGES_DIR, DATA_DIR, SELLER_KAKAO_URL, OUR_KAKAO_URL
 from models import get_session, Product, Category, init_db, log_event
 
 # Chrome 프로필 저장 경로 (로그인 세션 유지)
@@ -157,10 +157,7 @@ class BandPoster:
         # 설명 (전체) - 카카오 오픈채팅 URL을 우리 채팅방으로 교체
         if product.description:
             desc = product.description.strip()
-            desc = desc.replace(
-                "https://open.kakao.com/o/gF7nJ96h",
-                "https://open.kakao.com/o/sNgjJoBb"
-            )
+            desc = desc.replace(SELLER_KAKAO_URL, OUR_KAKAO_URL)
             lines.append(desc)
             lines.append("")
 
