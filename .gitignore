@@ -20,6 +20,7 @@ data/band_cookies.json
 *.swp
 
 # Claude 컨텍스트 (민감 정보 포함)
+CLAUDE.md
 MEMORY.md
 
 # OS
