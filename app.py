@@ -443,8 +443,8 @@ MAIN_TEMPLATE = """
     </main>
 
     <footer class="footer">
-        <p>© 2026 Young Fresh Mall. All rights reserved.</p>
-        <p style="margin-top:5px;">고객센터: 1234-5678 | 평일 09:00 - 18:00</p>
+        <p><a href="https://open.kakao.com/o/sNgjJoBb" target="_blank" style="color:var(--primary);font-weight:600;">카카오 오픈채팅 문의하기</a></p>
+        <p style="margin-top:8px;">&copy; 2026 Young Fresh Mall. 언보링컴퍼니 All rights reserved.</p>
     </footer>
 </body>
 </html>
@@ -625,6 +625,7 @@ DETAIL_TEMPLATE = """
             font-size: 15px;
             line-height: 1.8;
             color: var(--text-dark);
+            white-space: pre-line;
         }
         .detail-content .text-block p {
             margin: 8px 0;
@@ -797,8 +798,8 @@ DETAIL_TEMPLATE = """
     </main>
 
     <footer class="footer">
-        <p>© 2026 Young Fresh Mall. All rights reserved.</p>
-        <p style="margin-top:5px;">고객센터: 1234-5678 | 평일 09:00 - 18:00</p>
+        <p><a href="https://open.kakao.com/o/sNgjJoBb" target="_blank" style="color:var(--primary);font-weight:600;">카카오 오픈채팅 문의하기</a></p>
+        <p style="margin-top:8px;">&copy; 2026 Young Fresh Mall. 언보링컴퍼니 All rights reserved.</p>
     </footer>
 </body>
 </html>
@@ -1112,7 +1113,8 @@ ORDER_TEMPLATE = """
     </main>
 
     <footer class="footer">
-        <p>&copy; 2026 Young Fresh Mall. All rights reserved.</p>
+        <p><a href="https://open.kakao.com/o/sNgjJoBb" target="_blank" style="color:var(--primary);font-weight:600;">카카오 오픈채팅 문의하기</a></p>
+        <p style="margin-top:8px;">&copy; 2026 Young Fresh Mall. 언보링컴퍼니 All rights reserved.</p>
     </footer>
 
     <script>
