@@ -102,18 +102,31 @@ class BandPoster:
 
         self.close()
 
-    def check_login(self):
-        """로그인 상태 확인"""
-        self.driver.get(self.BAND_HOME)
-        time.sleep(3)
+    def check_login(self, band_url=None):
+        """로그인 상태 확인 (실제 밴드 페이지 접근으로 검증)"""
+        test_url = band_url or BAND_PREVIEW_URL or self.BAND_HOME
+        self.driver.get(test_url)
+        time.sleep(5)
 
         current_url = self.driver.current_url
+        # 로그인 페이지로 리다이렉트되거나, 글쓰기 버튼이 없으면 미로그인
         if "auth.band.us" in current_url or "login" in current_url:
             print("  로그인이 필요합니다. band-login을 먼저 실행하세요.")
             return False
 
-        print("  로그인 상태 확인 OK")
-        return True
+        # 실제 밴드 페이지에서 글쓰기 버튼 존재 확인
+        try:
+            self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
+            print("  로그인 상태 확인 OK")
+            return True
+        except Exception:
+            # 로그인은 됐지만 글쓰기 권한이 없거나 세션 만료
+            page_source = self.driver.page_source
+            if "로그인" in page_source or "회원가입" in page_source:
+                print("  세션이 만료되었습니다. band-login을 다시 실행하세요.")
+                return False
+            print("  로그인 상태 확인 OK (글쓰기 버튼 미발견, 페이지 로드 지연 가능)")
+            return True
 
     # ── 콘텐츠 생성 ──────────────────────────────────────
 
