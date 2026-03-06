@@ -74,8 +74,41 @@ class BandPoster:
 
     # ── 로그인 ──────────────────────────────────────────
 
+    COOKIE_FILE = DATA_DIR / "band_cookies.json"
+
+    def _save_cookies(self):
+        """현재 브라우저 쿠키를 JSON 파일로 저장"""
+        cookies = self.driver.get_cookies()
+        with open(self.COOKIE_FILE, 'w') as f:
+            json.dump(cookies, f)
+        print(f"  쿠키 저장 완료 ({len(cookies)}개 → {self.COOKIE_FILE})")
+
+    def _load_cookies(self):
+        """저장된 쿠키를 브라우저에 로드"""
+        if not self.COOKIE_FILE.exists():
+            return False
+        try:
+            with open(self.COOKIE_FILE, 'r') as f:
+                cookies = json.load(f)
+            # 먼저 band.us 도메인으로 이동 (쿠키 설정 전 필수)
+            self.driver.get("https://www.band.us")
+            time.sleep(2)
+            for cookie in cookies:
+                # sameSite 호환성 처리
+                cookie.pop('sameSite', None)
+                cookie.pop('storeId', None)
+                try:
+                    self.driver.add_cookie(cookie)
+                except Exception:
+                    pass
+            print(f"  쿠키 로드 완료 ({len(cookies)}개)")
+            return True
+        except Exception as e:
+            print(f"  쿠키 로드 실패: {e}")
+            return False
+
     def login(self):
-        """수동 로그인 (Chrome 프로필에 세션 자동 저장)"""
+        """수동 로그인 (쿠키를 JSON 파일로 저장)"""
         self._init_driver()
 
         print("\n" + "=" * 50)
@@ -87,15 +120,14 @@ class BandPoster:
 
         print("\n브라우저에서 네이버/밴드 계정으로 로그인해주세요.")
         print("로그인이 완료되면 밴드 메인 페이지가 보일 것입니다.")
-        print("(Chrome 프로필에 자동 저장되므로 다음부터 로그인 불필요)\n")
+        print("(쿠키가 파일로 저장되어 headless에서도 사용 가능)\n")
 
         # 로그인 대기 (input 또는 폴링)
         try:
             input(">>> 로그인 완료 후 Enter를 누르세요... ")
         except EOFError:
-            # SSH 등 stdin 없는 환경 → 로그인 상태 폴링 (최대 3분)
             print(">>> 자동 대기 모드 (로그인 감지 시 자동 종료, 최대 3분)")
-            for i in range(36):  # 5초 × 36 = 3분
+            for i in range(36):
                 time.sleep(5)
                 current_url = self.driver.current_url
                 if "auth.band.us" not in current_url and "login" not in current_url:
@@ -110,30 +142,37 @@ class BandPoster:
         if "auth.band.us" in current_url or "login" in current_url:
             print("  아직 로그인되지 않은 것 같습니다. 다시 시도해주세요.")
         else:
-            print("\n  로그인 세션이 Chrome 프로필에 저장되었습니다.")
+            # 밴드 페이지에도 접근해서 페이지별 쿠키까지 저장
+            test_url = BAND_PREVIEW_URL or self.BAND_HOME
+            self.driver.get(test_url)
+            time.sleep(3)
+            self._save_cookies()
+            print("\n  로그인 세션이 저장되었습니다.")
             print("  이제 band-post 명령으로 게시물을 올릴 수 있습니다.")
 
         self.close()
 
     def check_login(self, band_url=None):
-        """로그인 상태 확인 (실제 밴드 페이지 접근으로 검증)"""
+        """로그인 상태 확인 (쿠키 로드 → 밴드 페이지 접근 검증)"""
+        # 저장된 쿠키 로드
+        if self.COOKIE_FILE.exists():
+            self._load_cookies()
+
         test_url = band_url or BAND_PREVIEW_URL or self.BAND_HOME
         self.driver.get(test_url)
         time.sleep(5)
 
         current_url = self.driver.current_url
-        # 로그인 페이지로 리다이렉트되거나, 글쓰기 버튼이 없으면 미로그인
         if "auth.band.us" in current_url or "login" in current_url:
             print("  로그인이 필요합니다. band-login을 먼저 실행하세요.")
             return False
 
-        # 실제 밴드 페이지에서 글쓰기 버튼 존재 확인
+        # 글쓰기 버튼 존재 확인
         try:
-            self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
+            self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost, a.uButtonWrite")
             print("  로그인 상태 확인 OK")
             return True
         except Exception:
-            # 로그인은 됐지만 글쓰기 권한이 없거나 세션 만료
             page_source = self.driver.page_source
             if "로그인" in page_source or "회원가입" in page_source:
                 print("  세션이 만료되었습니다. band-login을 다시 실행하세요.")
