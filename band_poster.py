@@ -89,7 +89,20 @@ class BandPoster:
         print("로그인이 완료되면 밴드 메인 페이지가 보일 것입니다.")
         print("(Chrome 프로필에 자동 저장되므로 다음부터 로그인 불필요)\n")
 
-        input(">>> 로그인 완료 후 Enter를 누르세요... ")
+        # 로그인 대기 (input 또는 폴링)
+        try:
+            input(">>> 로그인 완료 후 Enter를 누르세요... ")
+        except EOFError:
+            # SSH 등 stdin 없는 환경 → 로그인 상태 폴링 (최대 3분)
+            print(">>> 자동 대기 모드 (로그인 감지 시 자동 종료, 최대 3분)")
+            for i in range(36):  # 5초 × 36 = 3분
+                time.sleep(5)
+                current_url = self.driver.current_url
+                if "auth.band.us" not in current_url and "login" not in current_url:
+                    print(f"\n  로그인 감지! ({(i+1)*5}초)")
+                    break
+            else:
+                print("\n  3분 타임아웃.")
 
         current_url = self.driver.current_url
         print(f"  현재 URL: {current_url}")
