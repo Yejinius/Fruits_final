@@ -712,7 +712,7 @@ DETAIL_TEMPLATE = """
 
                 <h1>{{ product.name }}</h1>
 
-                <p class="detail-price">{{ "{:,}".format(product.price or 0) }}<span class="won">원</span></p>
+                <p class="detail-price" id="displayPrice">{{ "{:,}".format(product.price or 0) }}<span class="won">원</span></p>
 
                 <div class="detail-meta">
                     <div class="meta-row">
@@ -760,6 +760,7 @@ DETAIL_TEMPLATE = """
                 <script>
                 var unitPrice = {{ product.price or 0 }};
                 var deliveryFee = {{ product.delivery_fee or 0 }};
+                var selectedArticleIdx = {{ product.article_idx }};
                 function changeQty(d) {
                     var inp = document.getElementById('quantity');
                     var v = parseInt(inp.value) + d;
@@ -772,7 +773,20 @@ DETAIL_TEMPLATE = """
                     var qty = parseInt(document.getElementById('quantity').value) || 1;
                     var total = (unitPrice + deliveryFee) * qty;
                     document.getElementById('totalPrice').textContent = '총 ' + total.toLocaleString() + '원';
-                    document.getElementById('buyBtn').href = '/order/{{ product.article_idx }}?qty=' + qty;
+                    document.getElementById('buyBtn').href = '/order/' + selectedArticleIdx + '?qty=' + qty;
+                    document.getElementById('displayPrice').innerHTML = unitPrice.toLocaleString() + '<span class="won">원</span>';
+                }
+                var optSel = document.getElementById('productOption');
+                if (optSel) {
+                    optSel.addEventListener('change', function() {
+                        var parts = this.value.split('|');
+                        if (parts.length >= 4) {
+                            selectedArticleIdx = parseInt(parts[0]);
+                            unitPrice = parseInt(parts[2]);
+                            deliveryFee = parseInt(parts[3]);
+                        }
+                        updateTotal();
+                    });
                 }
                 updateTotal();
                 </script>
