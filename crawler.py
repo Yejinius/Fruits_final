@@ -607,20 +607,24 @@ class OS79Crawler:
         return {'deactivated': deactivated, 'deactivated_ids': deactivated_ids}
 
     def notify_out_of_stock_orders(self, deactivated_article_ids: Set[int]) -> Dict[str, int]:
-        """비활성화된 상품을 포함한 입금 완료 주문에 품절 SMS 발송"""
+        """비활성화된 상품을 포함한 미결제 주문에 품절 SMS 발송
+
+        입금 완료(paid) 이후 단계는 이미 처리된 주문이므로 제외.
+        processing(주문 확인), awaiting_payment(입금 대기) 단계만 대상.
+        """
         if not deactivated_article_ids:
             return {'notified': 0, 'skipped': 0}
 
         if not self.db_session:
             self.db_session = get_session()
 
-        # status='paid' + 품절 미통보 + 비활성화 상품 포함 주문 조회
+        # 미결제 단계 + 품절 미통보 + 비활성화 상품 포함 주문 조회
         affected_orders = (
             self.db_session.query(Order)
             .options(joinedload(Order.items))
             .join(OrderItem)
             .filter(
-                Order.status == 'paid',
+                Order.status.in_(['processing', 'awaiting_payment']),
                 Order.oos_notified_at == None,
                 OrderItem.article_idx.in_(deactivated_article_ids)
             )
