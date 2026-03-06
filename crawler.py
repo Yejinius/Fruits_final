@@ -722,10 +722,13 @@ class OS79Crawler:
         # 신규 상품 감지
         newly_added_ids = self._get_active_product_ids() - pre_crawl_active
 
-        # 미게시 상품 목록 (번호 매핑용, 신규 상품이 있을 때만 전체 로드)
+        # 미게시/게시완료 상품 통계
         from band_poster import get_unposted_products
         pending = get_unposted_products()
-        pending_map = {p.article_idx: i for i, p in enumerate(pending, 1)} if newly_added_ids else {}
+        pending_map = {p.article_idx: i for i, p in enumerate(pending, 1)}
+        posted_count = self.db_session.query(Product).filter(
+            Product.is_active == True, Product.band_posted_at != None
+        ).count()
 
         # 텔레그램 크롤링 완료 알림
         total_success = sum(r.get('success', 0) for c, r in all_results.items() if c in CATEGORIES)
@@ -754,26 +757,25 @@ class OS79Crawler:
             if len(deactivated_products) > 15:
                 msg_lines.append(f"  ... 외 {len(deactivated_products) - 15}개")
 
-        # 신규 상품 상세 (미게시 리스트 번호 포함, 최대 15개)
+        # 신규 상품 상세 (미게시 리스트 번호 포함, 최대 20개)
         if newly_added_ids:
             new_products = self.db_session.query(Product).options(
                 joinedload(Product.category)
             ).filter(
                 Product.article_idx.in_(newly_added_ids)
             ).all()
-            msg_lines.append(f"\n📥 신규 상품 {len(new_products)}개:")
-            for p in sorted(new_products, key=lambda x: pending_map.get(x.article_idx, 9999))[:15]:
+            msg_lines.append(f"\n🆕 새로운 상품 {len(new_products)}개:")
+            for p in sorted(new_products, key=lambda x: pending_map.get(x.article_idx, 9999))[:20]:
                 num = pending_map.get(p.article_idx)
-                cat_name = p.category.name if p.category else "미분류"
                 price = f"{p.price:,}원" if p.price else "가격미정"
-                if num:
-                    msg_lines.append(f"  #{num}. {p.name[:25]} ({cat_name}, {price})")
-                else:
-                    msg_lines.append(f"  - {p.name[:25]} ({cat_name}, {price})")
-            if len(new_products) > 15:
-                msg_lines.append(f"  ... 외 {len(new_products) - 15}개")
+                prefix = f" {num}." if num else " -"
+                msg_lines.append(f"{prefix} {p.name[:35]} ({price})")
+            if len(new_products) > 20:
+                msg_lines.append(f"  ... 외 {len(new_products) - 20}개")
+        else:
+            msg_lines.append(f"\n🆕 새로운 상품 없음")
 
-        msg_lines.append(f"\n📋 미게시: {len(pending)}개")
+        msg_lines.append(f"\n📋 미게시: {len(pending)}개 / 게시 완료: {posted_count}개")
         msg = "\n".join(msg_lines)
         try:
             from telegram_bot import send_message
