@@ -43,7 +43,8 @@ class BandPoster:
 
         options = Options()
         if self.headless:
-            options.add_argument("--headless=new")
+            # headless에서 Chrome 프로필 쿠키 호환 문제로 GUI 모드 사용 + 창 최소화
+            options.add_argument("--window-position=-9999,-9999")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--window-size=1200,900")
