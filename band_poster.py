@@ -172,10 +172,10 @@ class BandPoster:
         return "\n".join(lines)
 
     def _get_product_images(self, product):
-        """상품의 로컬 이미지 경로 목록 반환 (상세 이미지만, main은 detail과 중복이므로 제외)"""
+        """상품의 로컬 이미지 경로 목록 반환 (상세 이미지만, 인덱스 0은 메인 이미지와 중복이므로 제외)"""
         images = []
 
-        # 상세 이미지만 사용 (main 이미지는 detail 첫 장과 동일하므로 제외)
+        # 상세 이미지 사용 (인덱스 0 = 메인 이미지와 동일하므로 스킵)
         if product.detail_images:
             try:
                 detail_urls = json.loads(product.detail_images)
@@ -183,6 +183,8 @@ class BandPoster:
                 detail_urls = []
 
             for i, url in enumerate(detail_urls):
+                if i == 0:
+                    continue  # 메인 이미지 중복 방지
                 img = self._find_local_image(product.article_idx, "detail", i)
                 if not img:
                     img = self._download_image(url, product.article_idx, "detail", i)

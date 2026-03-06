@@ -250,7 +250,12 @@ class OS79Crawler:
 
             extract_content(detail_section)
 
-            # 빈 텍스트 제거 및 정리
+            # 빈 텍스트 제거 및 정리 + 원판매자 카카오 URL → 우리 URL 교체
+            SELLER_KAKAO_URL = "https://open.kakao.com/o/gF7nJ96h"
+            OUR_KAKAO_URL = "https://open.kakao.com/o/sNgjJoBb"
+            for item in detail_content:
+                if item['type'] == 'text':
+                    item['content'] = item['content'].replace(SELLER_KAKAO_URL, OUR_KAKAO_URL)
             detail_content = [
                 item for item in detail_content
                 if item['type'] == 'image' or (item['type'] == 'text' and item['content'].strip())
@@ -267,6 +272,7 @@ class OS79Crawler:
             desc_text = html_mod.unescape(desc_text)                  # HTML 엔티티 디코드
             desc_text = '\n'.join(line.strip() for line in desc_text.split('\n'))
             desc_text = re.sub(r'\n{4,}', '\n\n\n', desc_text)       # 과도한 빈 줄 정리
+            desc_text = desc_text.replace(SELLER_KAKAO_URL, OUR_KAKAO_URL)  # 원판매자 → 우리 카카오 URL 교체
             product['description'] = desc_text.strip()[:5000]
 
         # 7. 옵션 정보

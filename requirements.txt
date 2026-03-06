@@ -20,3 +20,6 @@ flask-limiter==3.5.1
 
 # 프로덕션 WSGI 서버
 gunicorn==22.0.0
+
+# Telegram Bot (알림 + 승인 플로우)
+# requests는 이미 포함됨 — telegram_bot.py는 requests로 직접 API 호출

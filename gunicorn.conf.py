@@ -15,7 +15,14 @@ def on_starting(server):
     pass
 
 def post_worker_init(worker):
-    """워커 초기화 후 (첫 번째 워커에서만 스케줄러 실행)"""
+    """워커 초기화 후 (첫 번째 워커에서만 스케줄러 + 봇 실행)"""
     if worker.age == 1:  # 첫 번째 워커
         from payment_checker import payment_checker
         payment_checker.start_periodic(interval_minutes=30)
+
+        # Telegram 봇 백그라운드 시작
+        try:
+            from telegram_bot import start_bot_thread
+            start_bot_thread()
+        except Exception as e:
+            print(f"[Gunicorn] Telegram 봇 시작 실패: {e}")

@@ -157,6 +157,10 @@ def main():
     band_confirm_parser = subparsers.add_parser('band-confirm', help='승인된 상품 본 밴드에 게시')
     band_confirm_parser.add_argument('article_idx', type=int, help='상품 ID')
 
+    # ── Telegram Bot ──
+    subparsers.add_parser('bot', help='텔레그램 봇 서버 실행')
+    subparsers.add_parser('bot-test', help='텔레그램 테스트 알림 전송')
+
     args = parser.parse_args()
 
     if args.command == 'all':
@@ -189,6 +193,17 @@ def main():
     elif args.command == 'band-confirm':
         from band_poster import band_post_confirm
         band_post_confirm(args.article_idx)
+    elif args.command == 'bot':
+        from telegram_bot import TelegramBotServer
+        print("YoungfreshBot 시작 (Ctrl+C로 종료)")
+        bot = TelegramBotServer()
+        try:
+            bot.start()
+        except KeyboardInterrupt:
+            print("\n봇 종료")
+    elif args.command == 'bot-test':
+        from telegram_bot import send_test_alert
+        send_test_alert()
     else:
         parser.print_help()
         print("\n카테고리 코드:")

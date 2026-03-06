@@ -231,7 +231,7 @@ def get_session():
 
 
 def log_event(level, category, message, detail=None, related_id=None):
-    """이벤트 로그 DB 기록 + 콘솔 출력"""
+    """이벤트 로그 DB 기록 + 콘솔 출력 + 텔레그램 알림 (error/critical)"""
     try:
         session = get_session()
         log = EventLog(
@@ -244,6 +244,14 @@ def log_event(level, category, message, detail=None, related_id=None):
     except Exception:
         pass  # 로깅 자체가 실패해도 메인 프로세스 중단하지 않음
     print(f"[{level.upper()}][{category}] {message}")
+
+    # error/critical 레벨은 텔레그램 실시간 알림
+    if level in ("error", "critical"):
+        try:
+            from telegram_bot import send_alert
+            send_alert(level, category, message, detail=detail)
+        except Exception:
+            pass  # 텔레그램 미설정 환경에서도 동작
 
 
 if __name__ == "__main__":

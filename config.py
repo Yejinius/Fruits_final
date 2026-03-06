@@ -60,7 +60,7 @@ USER_AGENTS = [
 # 네이버 밴드 설정
 BAND_PREVIEW_URL = os.getenv("BAND_PREVIEW_URL", "https://band.us/page/101768540")
 BAND_PRODUCTION_URL = os.getenv("BAND_PRODUCTION_URL", "")
-SHOPPING_MALL_URL = os.getenv("SHOPPING_MALL_URL", "http://localhost:5000")
+SHOPPING_MALL_URL = os.getenv("SHOPPING_MALL_URL", "https://youngfresh.net")
 
 # Aligo SMS 설정 (https://smartsms.aligo.in)
 ALIGO_API_KEY = os.getenv("ALIGO_API_KEY", "")
@@ -71,6 +71,10 @@ ALIGO_SENDER = os.getenv("ALIGO_SENDER", "")
 ADMIN_BASE_URL = "http://admin.open79.co.kr"
 ADMIN_ID = os.getenv("ADMIN_ID", "")
 ADMIN_PW = os.getenv("ADMIN_PW", "")
+
+# Telegram Alert Bot (YoungfreshBot)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 # Flask
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
