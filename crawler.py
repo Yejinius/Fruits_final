@@ -707,6 +707,23 @@ class OS79Crawler:
             oos_result = self.notify_out_of_stock_orders(all_deactivated_ids)
             all_results['oos_notifications'] = oos_result
 
+        # 텔레그램 크롤링 완료 알림
+        try:
+            from telegram_bot import send_message
+            total_success = sum(r.get('success', 0) for c, r in all_results.items() if c in CATEGORIES)
+            total_fail = sum(r.get('fail', 0) for c, r in all_results.items() if c in CATEGORIES)
+            deactivated = len(all_deactivated_ids)
+            elapsed = (datetime.now() - crawl_started_at).total_seconds()
+            msg = f"[크롤링 완료] {total_success}개 성공"
+            if total_fail:
+                msg += f", {total_fail}개 실패"
+            if deactivated:
+                msg += f", {deactivated}개 비활성화"
+            msg += f" ({elapsed:.0f}초)"
+            send_message(msg)
+        except Exception:
+            pass
+
         return all_results
 
     def close(self):
