@@ -148,10 +148,34 @@ class TelegramBotServer:
         elif "callback_query" in update:
             self._handle_callback(update["callback_query"])
 
+    def _is_authorized(self, chat_id):
+        """허용된 채팅인지 확인 (1:1 또는 허용된 그룹)"""
+        allowed = {int(TELEGRAM_CHAT_ID)}
+        # .env의 TELEGRAM_GROUP_IDS (쉼표 구분)에 그룹 chat_id 추가 가능
+        import os
+        group_ids = os.getenv("TELEGRAM_GROUP_IDS", "")
+        for gid in group_ids.split(","):
+            gid = gid.strip()
+            if gid:
+                try:
+                    allowed.add(int(gid))
+                except ValueError:
+                    pass
+        return chat_id in allowed
+
     def _handle_message(self, message):
         """텍스트 명령 처리"""
         chat_id = message["chat"]["id"]
+        chat_type = message["chat"].get("type", "private")
         text = message.get("text", "").strip()
+
+        # 모든 메시지에 chat_id 로깅 (그룹 설정용)
+        if chat_type != "private":
+            user = message.get("from", {}).get("first_name", "?")
+            print(f"[TelegramBot] 그룹 메시지: chat_id={chat_id}, user={user}, text={text[:50]}")
+
+        if not self._is_authorized(chat_id):
+            return
 
         if text == "/start":
             self._cmd_start(chat_id)
@@ -170,6 +194,10 @@ class TelegramBotServer:
         data = callback.get("data", "")
         chat_id = callback["message"]["chat"]["id"]
         message_id = callback["message"]["message_id"]
+
+        if not self._is_authorized(chat_id):
+            _tg_post("answerCallbackQuery", {"callback_query_id": cb_id, "text": "권한 없음"})
+            return
 
         if data.startswith("approve_"):
             article_idx = int(data.split("_", 1)[1])
