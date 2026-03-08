@@ -55,16 +55,17 @@ def send_alert(level, category, message, detail=None):
     threading.Thread(target=_send, daemon=True).start()
 
 
-def send_message(text, parse_mode="HTML", reply_markup=None):
+def send_message(text, parse_mode="HTML", reply_markup=None, chat_id=None):
     """일반 텍스트 메시지 전송 (동기)"""
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": parse_mode}
+    data = {"chat_id": chat_id or TELEGRAM_CHAT_ID, "text": text, "parse_mode": parse_mode}
     if reply_markup:
         data["reply_markup"] = reply_markup
     return _tg_post("sendMessage", data)
 
 
-def send_band_approval_request(article_idx, product_name, price, preview_url, image_url=None):
+def send_band_approval_request(article_idx, product_name, price, preview_url, image_url=None, chat_id=None):
     """밴드 게시 승인 요청 (인라인 버튼)"""
+    target_chat = chat_id or TELEGRAM_CHAT_ID
     text = (
         f"🎯 <b>밴드 게시 승인 요청</b>\n\n"
         f"📦 <b>{product_name}</b>\n"
@@ -82,7 +83,7 @@ def send_band_approval_request(article_idx, product_name, price, preview_url, im
     # 이미지가 있으면 사진 + 캡션으로 전송
     if image_url:
         data = {
-            "chat_id": TELEGRAM_CHAT_ID,
+            "chat_id": target_chat,
             "photo": image_url,
             "caption": text,
             "parse_mode": "HTML",
@@ -93,7 +94,7 @@ def send_band_approval_request(article_idx, product_name, price, preview_url, im
             return result
         # 사진 전송 실패 시 텍스트로 fallback
 
-    return send_message(text, reply_markup=reply_markup)
+    return send_message(text, reply_markup=reply_markup, chat_id=target_chat)
 
 
 # ── 봇 서버 (Polling 방식) ─────────────────────────────────────
@@ -379,6 +380,7 @@ class TelegramBotServer:
                         product.price or 0,
                         post_url,
                         product.main_image_url,
+                        chat_id=chat_id,
                     )
                     success += 1
                 else:
