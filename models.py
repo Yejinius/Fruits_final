@@ -79,6 +79,7 @@ class Product(Base):
     band_post_url = Column(String(1000))         # 본 밴드 게시물 URL
     band_preview_posted_at = Column(DateTime)    # 테스트 밴드 미리보기 시간
     band_preview_url = Column(String(1000))      # 테스트 밴드 게시물 URL
+    band_skipped = Column(Boolean, default=False) # 밴드 게시 제외 (pending에서 숨김)
 
     # 메타 정보
     source_url = Column(String(1000))  # 원본 페이지 URL
@@ -212,9 +213,13 @@ def init_db():
     import sqlite3
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
-    for col in ['oos_notified_at DATETIME']:
+    migrations = [
+        ("orders", "oos_notified_at DATETIME"),
+        ("products", "band_skipped BOOLEAN DEFAULT 0"),
+    ]
+    for table, col in migrations:
         try:
-            cursor.execute(f"ALTER TABLE orders ADD COLUMN {col}")
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
             conn.commit()
         except sqlite3.OperationalError:
             pass

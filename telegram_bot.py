@@ -185,6 +185,10 @@ class TelegramBotServer:
             self._cmd_pending(chat_id)
         elif text == "/post" or text.startswith("/post "):
             self._cmd_post(chat_id, text)
+        elif text == "/skip" or text.startswith("/skip "):
+            self._cmd_skip(chat_id, text)
+        elif text == "/unskip" or text.startswith("/unskip "):
+            self._cmd_unskip(chat_id, text)
         elif text == "/help":
             self._cmd_help(chat_id)
 
@@ -435,6 +439,92 @@ class TelegramBotServer:
                 poster.close()
             self._posting_active = False
 
+    def _cmd_skip(self, chat_id, text):
+        """pending 목록에서 상품 제외 (벌크)"""
+        nums = self._parse_numbers(text)
+        if not nums:
+            _tg_post("sendMessage", {
+                "chat_id": chat_id,
+                "text": "사용법: <code>/skip 번호</code>\n예: <code>/skip 1 3 5-8</code>\n\n/pending에서 번호를 확인하세요.",
+                "parse_mode": "HTML",
+            })
+            return
+
+        try:
+            from band_poster import get_unposted_products
+            from models import get_session, Product
+            products = get_unposted_products()
+            db_session = get_session()
+
+            skipped = []
+            invalid = []
+            for n in nums:
+                if 1 <= n <= len(products):
+                    p = db_session.query(Product).filter_by(
+                        article_idx=products[n - 1].article_idx
+                    ).first()
+                    if p:
+                        p.band_skipped = True
+                        skipped.append(f"#{n}. {p.name[:30]}")
+                else:
+                    invalid.append(n)
+
+            db_session.commit()
+            db_session.close()
+
+            msg = f"⏭️ <b>{len(skipped)}개 상품 제외 완료</b>\n\n" + "\n".join(skipped)
+            if invalid:
+                msg += f"\n\n⚠️ 유효하지 않은 번호: {', '.join(str(n) for n in invalid)}"
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
+        except Exception as e:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": f"❌ 제외 실패: {e}"})
+
+    def _cmd_unskip(self, chat_id, text):
+        """제외된 상품 복원 (번호 또는 'all')"""
+        arg = text.split(maxsplit=1)[1].strip() if ' ' in text else ""
+
+        try:
+            from models import get_session, Product
+
+            db_session = get_session()
+
+            if arg == "all":
+                count = db_session.query(Product).filter(
+                    Product.band_skipped == True
+                ).update({Product.band_skipped: False})
+                db_session.commit()
+                db_session.close()
+                _tg_post("sendMessage", {
+                    "chat_id": chat_id,
+                    "text": f"✅ 제외된 상품 {count}개 모두 복원했습니다.",
+                })
+                return
+
+            if arg == "list":
+                skipped = db_session.query(Product).filter(
+                    Product.band_skipped == True,
+                    Product.is_active == True,
+                ).all()
+                db_session.close()
+                if not skipped:
+                    _tg_post("sendMessage", {"chat_id": chat_id, "text": "제외된 상품이 없습니다."})
+                    return
+                lines = [f"⏭️ <b>제외된 상품 ({len(skipped)}개)</b>\n"]
+                for i, p in enumerate(skipped, 1):
+                    lines.append(f"  {i}. {p.name[:35]}")
+                lines.append(f"\n<code>/unskip all</code> — 전체 복원")
+                _tg_post("sendMessage", {"chat_id": chat_id, "text": "\n".join(lines), "parse_mode": "HTML"})
+                return
+
+            db_session.close()
+            _tg_post("sendMessage", {
+                "chat_id": chat_id,
+                "text": "사용법:\n<code>/unskip list</code> — 제외 목록 보기\n<code>/unskip all</code> — 전체 복원",
+                "parse_mode": "HTML",
+            })
+        except Exception as e:
+            _tg_post("sendMessage", {"chat_id": chat_id, "text": f"❌ 복원 실패: {e}"})
+
     def _cmd_help(self, chat_id):
         _tg_post("sendMessage", {
             "chat_id": chat_id,
@@ -444,6 +534,10 @@ class TelegramBotServer:
                 "/pending — 밴드 미게시 상품 (카테고리별)\n"
                 "/post 번호 — 테스트 밴드 게시\n"
                 "  예: <code>/post 1 3 5-8</code>\n"
+                "/skip 번호 — pending에서 제외\n"
+                "  예: <code>/skip 1 3 5-8</code>\n"
+                "/unskip list — 제외 목록 보기\n"
+                "/unskip all — 전체 복원\n"
                 "/help — 이 도움말\n\n"
                 "밴드 승인 요청이 오면 ✅/❌ 버튼으로 응답하세요."
             ),

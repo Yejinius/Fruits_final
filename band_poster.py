@@ -659,7 +659,8 @@ def get_unposted_products(category_code=None):
         joinedload(Product.category)
     ).filter(
         Product.is_active == True,
-        Product.band_posted_at == None
+        Product.band_posted_at == None,
+        Product.band_skipped != True,
     )
 
     if category_code:
