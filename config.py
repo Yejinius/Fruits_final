@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
 IMAGES_DIR = DATA_DIR / "images"
 DB_PATH = DATA_DIR / "products.db"
+TAIL_IMAGE_PATH = DATA_DIR / "YF_final_image.jpg"  # 마지막 이미지 교체용 (세로 4000px 초과 시)
 
 # 디렉토리 생성
 DATA_DIR.mkdir(exist_ok=True)

@@ -16,6 +16,13 @@ app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 
+
+@app.route('/data-images/<filename>')
+def serve_data_image(filename):
+    """data/ 폴더의 이미지 서빙"""
+    from flask import send_from_directory
+    return send_from_directory(str(DATA_DIR), filename)
+
 # 공통 스타일
 COMMON_STYLES = """
 <style>
@@ -815,6 +822,22 @@ DETAIL_TEMPLATE = """
         <p><a href="https://open.kakao.com/o/sNgjJoBb" target="_blank" style="color:var(--primary);font-weight:600;">카카오 오픈채팅 문의하기</a></p>
         <p style="margin-top:8px;">&copy; 2026 Young Fresh Mall. 언보링컴퍼니 All rights reserved.</p>
     </footer>
+    <script>
+    // 마지막 상세 이미지 높이 4000px 초과 시 YoungFreshMall 홍보 이미지로 교체
+    (function() {
+        var imgs = document.querySelectorAll('.detail-content .image-block img');
+        if (imgs.length > 0) {
+            var last = imgs[imgs.length - 1];
+            var check = function() {
+                if (last.naturalHeight > 4000) {
+                    last.src = '/data-images/YF_final_image.jpg';
+                }
+            };
+            if (last.complete && last.naturalHeight) check();
+            else last.addEventListener('load', check);
+        }
+    })();
+    </script>
 </body>
 </html>
 """

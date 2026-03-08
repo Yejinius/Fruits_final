@@ -349,6 +349,18 @@ class BandPoster:
                 if img:
                     images.append(img)
 
+        # 마지막 이미지 높이 4000px 초과 시 YoungFreshMall 홍보 이미지로 교체
+        if images:
+            try:
+                from PIL import Image
+                from config import TAIL_IMAGE_PATH
+                with Image.open(images[-1]) as img_check:
+                    if img_check.height > 4000:
+                        print(f"    마지막 이미지 높이 {img_check.height}px → YF 홍보 이미지로 교체")
+                        images[-1] = str(TAIL_IMAGE_PATH)
+            except Exception as e:
+                print(f"    마지막 이미지 높이 체크 실패: {e}")
+
         return images
 
     @staticmethod
