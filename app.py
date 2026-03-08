@@ -7,7 +7,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy.orm import joinedload
 from models import get_session, Product, Category, Order, OrderItem, log_event
-from config import CATEGORIES, FLASK_SECRET_KEY, FLASK_HOST, FLASK_PORT
+from config import CATEGORIES, FLASK_SECRET_KEY, FLASK_HOST, FLASK_PORT, DATA_DIR
 from order_processor import create_order, AdminOrderProcessor
 from sms import send_order_received_sms, send_payment_confirmed_sms
 from payment_checker import payment_checker
