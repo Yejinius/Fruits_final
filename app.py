@@ -814,6 +814,11 @@ DETAIL_TEMPLATE = """
                     {% endif %}
                 {% endfor %}
             </div>
+            {% if product.category and product.category.code == 'A' %}
+            <div class="image-block" style="margin-top:20px; text-align:center;">
+                <img src="/data-images/YF_final_image.jpg" alt="Young Fresh Mall" style="max-width:100%; border-radius:var(--radius-sm);">
+            </div>
+            {% endif %}
         </section>
         {% endif %}
     </main>
@@ -823,14 +828,14 @@ DETAIL_TEMPLATE = """
         <p style="margin-top:8px;">&copy; 2026 Young Fresh Mall. 언보링컴퍼니 All rights reserved.</p>
     </footer>
     <script>
-    // 마지막 상세 이미지 높이 4000px 초과 시 YoungFreshMall 홍보 이미지로 교체
+    // 마지막 상세 이미지 높이 4000px 초과 시 숨김 처리
     (function() {
-        var imgs = document.querySelectorAll('.detail-content .image-block img');
+        var imgs = document.querySelectorAll('.detail-content > .image-block img');
         if (imgs.length > 0) {
             var last = imgs[imgs.length - 1];
             var check = function() {
                 if (last.naturalHeight > 4000) {
-                    last.src = '/data-images/YF_final_image.jpg';
+                    last.parentElement.style.display = 'none';
                 }
             };
             if (last.complete && last.naturalHeight) check();
