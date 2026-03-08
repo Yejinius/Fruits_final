@@ -16,6 +16,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import UnexpectedAlertPresentException
 from webdriver_manager.chrome import ChromeDriverManager
 
 from config import BAND_PREVIEW_URL, BAND_PRODUCTION_URL, SHOPPING_MALL_URL, IMAGES_DIR, DATA_DIR, SELLER_KAKAO_URL, OUR_KAKAO_URL
@@ -318,6 +319,17 @@ class BandPoster:
         session.close()
         return post_url
 
+    def _dismiss_alert(self):
+        """열려있는 JS alert를 감지하고 dismiss"""
+        try:
+            alert = self.driver.switch_to.alert
+            text = alert.text
+            alert.dismiss()
+            print(f"    [alert dismissed] {text}")
+            return text
+        except Exception:
+            return None
+
     def _write_post(self, band_url, content, image_paths=None):
         """밴드에 글쓰기 실행 (Selenium 자동화)"""
         wait = WebDriverWait(self.driver, 15)
@@ -326,6 +338,7 @@ class BandPoster:
         print("  밴드 페이지 이동 중...")
         self.driver.get(band_url)
         time.sleep(5)
+        self._dismiss_alert()
 
         print(f"  현재 URL: {self.driver.current_url}")
 
@@ -349,16 +362,31 @@ class BandPoster:
             self._click_submit(wait)
             time.sleep(3)
 
+            # alert 체크 (게시 실패 시 "잘못된 요청입니다" 등)
+            alert_text = self._dismiss_alert()
+            if alert_text:
+                log_event('error', 'band', f"게시 후 alert: {alert_text}", detail=f"band_url={band_url}")
+                return None
+
             # 6. 게시 후 URL 캡처
             post_url = self.driver.current_url
             print(f"  게시물 작성 완료! URL: {post_url}")
             return post_url
 
+        except UnexpectedAlertPresentException as e:
+            alert_text = self._dismiss_alert() or str(e)
+            log_event('error', 'band', f"게시물 작성 중 alert: {alert_text}", detail=f"band_url={band_url}")
+            print(f"  게시 실패 (alert): {alert_text}")
+            return None
         except Exception as e:
+            self._dismiss_alert()
             log_event('error', 'band', f"게시물 작성 실패: {e}", detail=f"band_url={band_url}")
-            screenshot_path = IMAGES_DIR / "band_error_screenshot.png"
-            self.driver.save_screenshot(str(screenshot_path))
-            print(f"  스크린샷 저장: {screenshot_path}")
+            try:
+                screenshot_path = IMAGES_DIR / "band_error_screenshot.png"
+                self.driver.save_screenshot(str(screenshot_path))
+                print(f"  스크린샷 저장: {screenshot_path}")
+            except Exception:
+                pass
             return None
 
     def _open_write_layer(self, wait):
@@ -392,15 +420,18 @@ class BandPoster:
         html = "".join(paragraphs)
 
         # CKEditor setData API 사용
-        self.driver.execute_script("""
+        result = self.driver.execute_script("""
             var editor = CKEDITOR.instances.editor1;
             if (editor) {
                 editor.setData(arguments[0]);
+                return 'ckeditor:' + editor.getData().length;
             } else {
                 arguments[1].innerHTML = arguments[0];
+                return 'innerHTML:' + arguments[1].innerHTML.length;
             }
         """, html, editor)
-        time.sleep(0.5)
+        print(f"    텍스트 입력 결과: {result}")
+        time.sleep(1)
 
     def _attach_images(self, wait, image_paths):
         """이미지 파일 첨부 (hidden file input → 첨부하기 버튼)"""
