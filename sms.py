@@ -124,20 +124,31 @@ def build_payment_confirmed_msg(order) -> str:
     )
 
 
+# === 수신 번호 결정 ===
+
+def _get_sms_receiver(order) -> str:
+    """입금자 현금영수증 번호가 유효한 휴대폰이면 입금자에게, 아니면 받으실 분에게"""
+    if order.depositor_name and order.cash_receipt_no:
+        clean = re.sub(r'[^0-9]', '', order.cash_receipt_no)
+        if re.match(r'^01[016789]\d{8}$', clean):
+            return clean
+    return order.customer_phone
+
+
 # === 발송 함수 ===
 
 def send_order_received_sms(order) -> dict:
     """주문 접수 시 SMS 발송"""
     sms = AligoSMS()
     msg = build_order_received_msg(order)
-    return sms.send(order.customer_phone, msg, title="주문 접수 안내")
+    return sms.send(_get_sms_receiver(order), msg, title="주문 접수 안내")
 
 
 def send_payment_confirmed_sms(order) -> dict:
     """입금 확인 시 SMS 발송"""
     sms = AligoSMS()
     msg = build_payment_confirmed_msg(order)
-    return sms.send(order.customer_phone, msg, title="입금 확인 안내")
+    return sms.send(_get_sms_receiver(order), msg, title="입금 확인 안내")
 
 
 def build_out_of_stock_msg(order, unavailable_items: list) -> str:
@@ -162,4 +173,4 @@ def send_out_of_stock_sms(order, unavailable_items: list) -> dict:
     """품절 안내 SMS 발송"""
     sms = AligoSMS()
     msg = build_out_of_stock_msg(order, unavailable_items)
-    return sms.send(order.customer_phone, msg, title="품절 안내")
+    return sms.send(_get_sms_receiver(order), msg, title="품절 안내")
