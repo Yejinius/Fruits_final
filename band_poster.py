@@ -78,31 +78,25 @@ class BandPoster:
     COOKIE_FILE = DATA_DIR / "band_cookies.json"
 
     def _save_cookies(self):
-        """현재 브라우저 쿠키를 JSON 파일로 저장"""
-        cookies = self.driver.get_cookies()
+        """CDP로 모든 도메인 쿠키를 JSON 파일로 저장 (네이버 SSO 포함)"""
+        result = self.driver.execute_cdp_cmd('Network.getAllCookies', {})
+        cookies = result.get('cookies', [])
         with open(self.COOKIE_FILE, 'w') as f:
             json.dump(cookies, f)
-        print(f"  쿠키 저장 완료 ({len(cookies)}개 → {self.COOKIE_FILE})")
+        domains = set(c.get('domain', '') for c in cookies)
+        print(f"  쿠키 저장 완료 ({len(cookies)}개, 도메인: {len(domains)}개 → {self.COOKIE_FILE})")
 
     def _load_cookies(self):
-        """저장된 쿠키를 브라우저에 로드"""
+        """CDP로 저장된 쿠키를 모든 도메인에 로드"""
         if not self.COOKIE_FILE.exists():
             return False
         try:
             with open(self.COOKIE_FILE, 'r') as f:
                 cookies = json.load(f)
-            # 먼저 band.us 도메인으로 이동 (쿠키 설정 전 필수)
-            self.driver.get("https://www.band.us")
-            time.sleep(2)
-            for cookie in cookies:
-                # sameSite 호환성 처리
-                cookie.pop('sameSite', None)
-                cookie.pop('storeId', None)
-                try:
-                    self.driver.add_cookie(cookie)
-                except Exception:
-                    pass
-            print(f"  쿠키 로드 완료 ({len(cookies)}개)")
+            # CDP setCookies는 도메인 무관하게 모든 쿠키를 한 번에 설정
+            self.driver.execute_cdp_cmd('Network.setCookies', {'cookies': cookies})
+            domains = set(c.get('domain', '') for c in cookies)
+            print(f"  쿠키 로드 완료 ({len(cookies)}개, 도메인: {len(domains)}개)")
             return True
         except Exception as e:
             print(f"  쿠키 로드 실패: {e}")
