@@ -1,14 +1,16 @@
 """
 네이버 밴드 자동 포스팅 (Selenium)
-- Chrome 프로필 디렉토리로 로그인 세션 유지
+- 상시 실행 Chrome (remote debugging port) 방식으로 세션 유지
 - DB 상품 정보로 홍보 게시물 + 이미지 첨부
 """
 import json
 import time
 import os
 import stat
+import subprocess
 from pathlib import Path
 
+import requests as http_requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -24,11 +26,66 @@ from models import get_session, Product, Category, init_db, log_event
 
 # Chrome 프로필 저장 경로 (로그인 세션 유지)
 CHROME_PROFILE_DIR = DATA_DIR / "chrome_profile"
+REMOTE_DEBUG_PORT = 9222
 
 
 def get_product_url(article_idx):
     """상품 구매 페이지 URL 생성 (SHOPPING_MALL_URL은 config.py에서 관리)"""
     return f"{SHOPPING_MALL_URL}/product/{article_idx}"
+
+
+def is_chrome_running():
+    """Remote debugging Chrome이 실행 중인지 확인"""
+    try:
+        resp = http_requests.get(f'http://127.0.0.1:{REMOTE_DEBUG_PORT}/json/version', timeout=2)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def start_persistent_chrome():
+    """Chrome을 remote debugging 모드로 상시 실행 (로그인 세션 유지용)"""
+    if is_chrome_running():
+        print("  Chrome이 이미 실행 중입니다.")
+        return True
+
+    CHROME_PROFILE_DIR.mkdir(exist_ok=True)
+
+    # macOS Chrome 경로
+    chrome_paths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ]
+    chrome_bin = None
+    for p in chrome_paths:
+        if os.path.exists(p):
+            chrome_bin = p
+            break
+
+    if not chrome_bin:
+        print("  Chrome을 찾을 수 없습니다.")
+        return False
+
+    cmd = [
+        chrome_bin,
+        f"--user-data-dir={CHROME_PROFILE_DIR}",
+        f"--remote-debugging-port={REMOTE_DEBUG_PORT}",
+        "--window-size=1200,900",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-notifications",
+    ]
+
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Chrome 시작 대기
+    for _ in range(10):
+        time.sleep(1)
+        if is_chrome_running():
+            print(f"  Chrome 시작 완료 (port {REMOTE_DEBUG_PORT})")
+            return True
+
+    print("  Chrome 시작 실패")
+    return False
 
 
 class BandPoster:
@@ -37,20 +94,44 @@ class BandPoster:
     def __init__(self, headless=False):
         self.driver = None
         self.headless = headless
+        self._attached = False  # 기존 Chrome에 연결했는지 여부
 
     def _init_driver(self):
-        """Chrome WebDriver 초기화 (프로필 디렉토리로 세션 유지)"""
-        CHROME_PROFILE_DIR.mkdir(exist_ok=True)
+        """Chrome WebDriver 초기화 — 실행 중인 Chrome에 연결 또는 새로 시작"""
+        # 1. 실행 중인 Chrome에 연결 시도
+        if is_chrome_running():
+            try:
+                options = Options()
+                options.add_experimental_option("debuggerAddress", f"127.0.0.1:{REMOTE_DEBUG_PORT}")
 
+                driver_path = ChromeDriverManager().install()
+                if os.path.basename(driver_path) != "chromedriver":
+                    driver_dir = os.path.dirname(driver_path)
+                    correct_path = os.path.join(driver_dir, "chromedriver")
+                    if os.path.exists(correct_path):
+                        driver_path = correct_path
+                os.chmod(driver_path, os.stat(driver_path).st_mode | stat.S_IEXEC)
+
+                service = Service(driver_path)
+                self.driver = webdriver.Chrome(service=service, options=options)
+                self.driver.implicitly_wait(5)
+                self._attached = True
+                print("  기존 Chrome에 연결됨 (persistent mode)")
+                return
+            except Exception as e:
+                print(f"  기존 Chrome 연결 실패: {e}")
+
+        # 2. 새 Chrome 시작 (fallback — login 등에서 사용)
+        CHROME_PROFILE_DIR.mkdir(exist_ok=True)
         options = Options()
         if self.headless:
-            # headless에서 Chrome 프로필 쿠키 호환 문제로 GUI 모드 사용 + 창 최소화
             options.add_argument("--window-position=-9999,-9999")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--window-size=1200,900")
         options.add_argument("--disable-notifications")
         options.add_argument(f"--user-data-dir={CHROME_PROFILE_DIR}")
+        options.add_argument(f"--remote-debugging-port={REMOTE_DEBUG_PORT}")
         options.add_experimental_option("prefs", {
             "profile.default_content_setting_values.notifications": 2
         })
@@ -67,11 +148,20 @@ class BandPoster:
         service = Service(driver_path)
         self.driver = webdriver.Chrome(service=service, options=options)
         self.driver.implicitly_wait(5)
+        self._attached = False
+        print("  새 Chrome 시작됨")
 
     def close(self):
-        """브라우저 종료"""
+        """브라우저 연결 해제 (persistent Chrome은 종료하지 않음)"""
         if self.driver:
-            self.driver.quit()
+            if self._attached:
+                # 기존 Chrome에 연결한 경우: 드라이버만 종료, Chrome은 유지
+                try:
+                    self.driver.service.stop()
+                except Exception:
+                    pass
+            else:
+                self.driver.quit()
             self.driver = None
 
     # ── 로그인 ──────────────────────────────────────────
@@ -104,7 +194,12 @@ class BandPoster:
             return False
 
     def login(self):
-        """수동 로그인 (쿠키를 JSON 파일로 저장)"""
+        """수동 로그인 — Chrome을 persistent 모드로 시작하고 로그인 대기"""
+        # persistent Chrome 시작 (이미 실행 중이면 연결만)
+        if not is_chrome_running():
+            start_persistent_chrome()
+            time.sleep(2)
+
         self._init_driver()
 
         print("\n" + "=" * 50)
@@ -115,56 +210,53 @@ class BandPoster:
         time.sleep(2)
 
         print("\n브라우저에서 네이버/밴드 계정으로 로그인해주세요.")
-        print("로그인이 완료되면 밴드 메인 페이지가 보일 것입니다.")
-        print("(쿠키가 파일로 저장되어 headless에서도 사용 가능)\n")
+        print("(Chrome은 상시 실행 모드로 유지됩니다)\n")
 
         # 로그인 대기 (input 또는 폴링)
+        test_url = BAND_PREVIEW_URL or self.BAND_HOME
         try:
             input(">>> 로그인 완료 후 Enter를 누르세요... ")
         except EOFError:
             # SSH 환경: 유저가 Chrome에서 직접 로그인+밴드 페이지 이동할 때까지 대기
-            # 페이지를 강제 이동하지 않고, 현재 URL/상태만 확인
-            test_url = BAND_PREVIEW_URL or self.BAND_HOME
-            print(f">>> 자동 대기 모드 (최대 5분)")
+            print(f">>> 자동 대기 모드 (최대 10분)")
             print(f"  1. Chrome에서 로그인 버튼을 클릭하세요")
             print(f"  2. 네이버 로그인 완료 후 {test_url} 로 이동하세요")
             print(f"  3. 글쓰기 버튼이 보이면 자동 감지됩니다\n")
-            for i in range(60):  # 5초 × 60 = 5분
+            for i in range(120):  # 5초 × 120 = 10분
                 time.sleep(5)
                 try:
-                    # 현재 페이지에 글쓰기 버튼이 있는지만 확인 (페이지 이동 안 함)
                     self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
                     print(f"\n  로그인+글쓰기 권한 확인! ({(i+1)*5}초)")
                     break
                 except Exception:
-                    if (i+1) % 6 == 0:  # 30초마다 상태 출력
+                    if (i+1) % 6 == 0:
                         print(f"  대기 중... ({(i+1)*5}초) URL: {self.driver.current_url[:60]}")
             else:
-                print("\n  5분 타임아웃.")
+                print("\n  10분 타임아웃.")
 
-        # 로그인 상태 최종 확인 — 밴드 페이지에서 글쓰기 버튼
-        test_url = BAND_PREVIEW_URL or self.BAND_HOME
+        # 로그인 상태 최종 확인
         self.driver.get(test_url)
         time.sleep(5)
         try:
             self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost")
-            self._save_cookies()
-            print("\n  로그인 세션이 저장되었습니다.")
+            print("\n  로그인 성공! Chrome이 상시 실행 모드로 유지됩니다.")
             print("  이제 band-post 명령으로 게시물을 올릴 수 있습니다.")
         except Exception:
             print("  글쓰기 권한이 없습니다. 밴드 페이지 관리자 계정으로 로그인했는지 확인하세요.")
 
+        # Chrome은 종료하지 않음 (persistent 모드)
         self.close()
 
     def check_login(self, band_url=None):
-        """로그인 상태 확인 (쿠키 로드 → 밴드 페이지 접근 검증)"""
-        # 저장된 쿠키 로드
-        if self.COOKIE_FILE.exists():
+        """로그인 상태 확인 (밴드 페이지 접근 + 글쓰기 버튼 검증)"""
+        # persistent Chrome이 아닌 경우에만 쿠키 파일 로드
+        if not self._attached and self.COOKIE_FILE.exists():
             self._load_cookies()
 
         test_url = band_url or BAND_PREVIEW_URL or self.BAND_HOME
         self.driver.get(test_url)
         time.sleep(5)
+        self._dismiss_alert()
 
         current_url = self.driver.current_url
         if "auth.band.us" in current_url or "login" in current_url:

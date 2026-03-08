@@ -127,8 +127,11 @@ def main():
     # 통계 보기
     subparsers.add_parser('stats', help='현재 DB 통계 보기')
 
+    # 밴드 Chrome 시작 (상시 실행)
+    subparsers.add_parser('band-chrome', help='밴드용 Chrome 상시 실행 시작')
+
     # 밴드 로그인
-    subparsers.add_parser('band-login', help='네이버 밴드 로그인 (쿠키 저장)')
+    subparsers.add_parser('band-login', help='네이버 밴드 로그인 (Chrome 상시 실행 모드)')
 
     # 밴드 포스팅
     band_post_parser = subparsers.add_parser('band-post', help='밴드에 상품 게시물 올리기')
@@ -172,6 +175,9 @@ def main():
     elif args.command == 'stats':
         init_db()
         show_stats()
+    elif args.command == 'band-chrome':
+        from band_poster import start_persistent_chrome
+        start_persistent_chrome()
     elif args.command == 'band-login':
         from band_poster import band_login
         band_login()
