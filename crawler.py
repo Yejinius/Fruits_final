@@ -777,13 +777,15 @@ class OS79Crawler:
 
         msg_lines.append(f"\n📋 밴드 게시: {posted_count}개 / 밴드 미게시: {len(pending)}개")
 
-        # 일간 방문자 & 상품별 인기도 (1:1 채팅에만)
+        # 일간 방문자 분석 (1:1 채팅에만)
         analytics_lines = []
         try:
             from models import PageView
             from sqlalchemy import func, cast, Date
             today = datetime.now().date()
             pv_session = get_session()
+
+            # 기본 지표
             daily_visitors = pv_session.query(func.count(func.distinct(PageView.session_id))).filter(
                 cast(PageView.created_at, Date) == today
             ).scalar() or 0
@@ -791,20 +793,70 @@ class OS79Crawler:
                 cast(PageView.created_at, Date) == today
             ).scalar() or 0
 
+            analytics_lines.append(f"\n📊 <b>오늘 방문 분석</b>")
+            analytics_lines.append(f"👤 방문자: {daily_visitors}명 / 페이지뷰: {daily_views}회")
+
+            # 디바이스 비율
+            mobile_count = pv_session.query(func.count(PageView.id)).filter(
+                cast(PageView.created_at, Date) == today, PageView.is_mobile == True
+            ).scalar() or 0
+            pc_count = daily_views - mobile_count
+            if daily_views > 0:
+                mobile_pct = mobile_count * 100 // daily_views
+                analytics_lines.append(f"📱 모바일: {mobile_count}회({mobile_pct}%) / 💻 PC: {pc_count}회({100-mobile_pct}%)")
+
+            # 체류 시간 (세션별 첫/마지막 방문 차이 평균)
+            from sqlalchemy import case
+            session_durations = pv_session.query(
+                (func.strftime('%s', func.max(PageView.created_at)) -
+                 func.strftime('%s', func.min(PageView.created_at))).label("dur")
+            ).filter(
+                cast(PageView.created_at, Date) == today
+            ).group_by(PageView.session_id).having(
+                func.count(PageView.id) > 1
+            ).all()
+            if session_durations:
+                avg_dur = sum(d.dur for d in session_durations) / len(session_durations)
+                mins, secs = divmod(int(avg_dur), 60)
+                analytics_lines.append(f"⏱️ 평균 체류: {mins}분 {secs}초 (2페이지 이상 {len(session_durations)}명)")
+
+            # 유입 경로
+            referrer_stats = pv_session.query(
+                PageView.referrer, func.count(PageView.id)
+            ).filter(
+                cast(PageView.created_at, Date) == today,
+                PageView.referrer != None,
+            ).group_by(PageView.referrer).order_by(func.count(PageView.id).desc()).limit(10).all()
+            if referrer_stats:
+                analytics_lines.append("🔗 유입 경로:")
+                for ref, cnt in referrer_stats:
+                    # 도메인만 추출
+                    import re as _re
+                    domain = _re.search(r'https?://([^/]+)', ref)
+                    label = domain.group(1) if domain else ref[:30]
+                    analytics_lines.append(f"  {cnt}회 — {label}")
+            # 직접 유입 (referrer 없음) 수
+            direct_count = pv_session.query(func.count(PageView.id)).filter(
+                cast(PageView.created_at, Date) == today,
+                PageView.referrer == None,
+            ).scalar() or 0
+            if direct_count:
+                analytics_lines.append(f"  {direct_count}회 — 직접 접속")
+
+            # 인기 상품 TOP5
             top_products = pv_session.query(
                 PageView.article_idx, func.count(PageView.id).label("cnt")
             ).filter(
                 PageView.article_idx != None,
                 cast(PageView.created_at, Date) == today,
             ).group_by(PageView.article_idx).order_by(func.count(PageView.id).desc()).limit(5).all()
-
-            analytics_lines.append(f"\n📊 오늘 방문: {daily_visitors}명 / {daily_views}회")
             if top_products:
                 analytics_lines.append("🏆 인기 상품 TOP5:")
                 for art_idx, cnt in top_products:
                     p = pv_session.query(Product).filter_by(article_idx=art_idx).first()
                     name = p.name[:25] if p else f"#{art_idx}"
                     analytics_lines.append(f"  {cnt}회 — {name}")
+
             pv_session.close()
         except Exception:
             pass
