@@ -863,8 +863,9 @@ class OS79Crawler:
 
         msg = "\n".join(msg_lines)
         try:
-            from telegram_bot import send_message
-            send_message(msg)
+            from telegram_bot import send_message, _get_alert_targets
+            for chat_id in _get_alert_targets():
+                send_message(msg, chat_id=chat_id)
             # 방문자 분석은 1:1 채팅에만 별도 전송
             if analytics_lines:
                 from config import TELEGRAM_CHAT_ID
