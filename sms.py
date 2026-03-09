@@ -130,7 +130,7 @@ def _get_sms_receiver(order) -> str:
     """입금자 현금영수증 번호가 유효한 휴대폰이면 입금자에게, 아니면 받으실 분에게"""
     if order.depositor_name and order.cash_receipt_no:
         clean = re.sub(r'[^0-9]', '', order.cash_receipt_no)
-        if re.match(r'^01[016789]\d{8}$', clean):
+        if re.match(r'^01[016789]\d{7,8}$', clean):
             return clean
     return order.customer_phone
 

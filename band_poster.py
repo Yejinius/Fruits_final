@@ -495,7 +495,9 @@ class BandPoster:
 
     def _open_write_layer(self, wait):
         """글쓰기 레이어 열기"""
-        btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button._btnWritePost")))
+        btn = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "button._btnWritePost, button._btnPostWrite, button._btnOpenWriteLayer")
+        ))
         print(f"    글쓰기 버튼 클릭")
         btn.click()
         time.sleep(2)
@@ -655,12 +657,13 @@ def get_unposted_products(category_code=None):
     init_db()
     session = get_session()
 
+    from sqlalchemy import or_
     query = session.query(Product).options(
         joinedload(Product.category)
     ).filter(
         Product.is_active == True,
         Product.band_posted_at == None,
-        Product.band_skipped != True,
+        or_(Product.band_skipped == False, Product.band_skipped == None),
     )
 
     if category_code:

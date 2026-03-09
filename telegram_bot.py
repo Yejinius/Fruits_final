@@ -106,6 +106,17 @@ class TelegramBotServer:
         self.offset = 0
         self.running = False
         self._posting_active = False
+        # 허용된 chat_id 목록 (1:1 + 그룹) — 한 번만 파싱
+        import os
+        allowed = {int(TELEGRAM_CHAT_ID)} if TELEGRAM_CHAT_ID else set()
+        for gid in os.getenv("TELEGRAM_GROUP_IDS", "").split(","):
+            gid = gid.strip()
+            if gid:
+                try:
+                    allowed.add(int(gid))
+                except ValueError:
+                    pass
+        self._allowed_chats = frozenset(allowed)
 
     def start(self):
         """봇 polling 시작 (blocking — 별도 스레드에서 호출)"""
@@ -150,18 +161,7 @@ class TelegramBotServer:
 
     def _is_authorized(self, chat_id):
         """허용된 채팅인지 확인 (1:1 또는 허용된 그룹)"""
-        allowed = {int(TELEGRAM_CHAT_ID)}
-        # .env의 TELEGRAM_GROUP_IDS (쉼표 구분)에 그룹 chat_id 추가 가능
-        import os
-        group_ids = os.getenv("TELEGRAM_GROUP_IDS", "")
-        for gid in group_ids.split(","):
-            gid = gid.strip()
-            if gid:
-                try:
-                    allowed.add(int(gid))
-                except ValueError:
-                    pass
-        return chat_id in allowed
+        return chat_id in self._allowed_chats
 
     def _handle_message(self, message):
         """텍스트 명령 처리"""
@@ -454,23 +454,24 @@ class TelegramBotServer:
             from band_poster import get_unposted_products
             from models import get_session, Product
             products = get_unposted_products()
-            db_session = get_session()
 
             skipped = []
             invalid = []
+            skip_idxs = []
             for n in nums:
                 if 1 <= n <= len(products):
-                    p = db_session.query(Product).filter_by(
-                        article_idx=products[n - 1].article_idx
-                    ).first()
-                    if p:
-                        p.band_skipped = True
-                        skipped.append(f"#{n}. {p.name[:30]}")
+                    skip_idxs.append(products[n - 1].article_idx)
+                    skipped.append(f"#{n}. {products[n - 1].name[:30]}")
                 else:
                     invalid.append(n)
 
-            db_session.commit()
-            db_session.close()
+            if skip_idxs:
+                db_session = get_session()
+                db_session.query(Product).filter(
+                    Product.article_idx.in_(skip_idxs)
+                ).update({Product.band_skipped: True}, synchronize_session=False)
+                db_session.commit()
+                db_session.close()
 
             msg = f"⏭️ <b>{len(skipped)}개 상품 제외 완료</b>\n\n" + "\n".join(skipped)
             if invalid:
