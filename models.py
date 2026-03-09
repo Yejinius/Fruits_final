@@ -203,6 +203,24 @@ class EventLog(Base):
         return f"<EventLog({self.level}, {self.category}, {self.message[:50]})>"
 
 
+class PageView(Base):
+    """페이지뷰 (익명 방문자 분석용)"""
+    __tablename__ = "page_views"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), index=True)       # 쿠키 기반 익명 세션 ID
+    path = Column(String(500), nullable=False)         # 요청 경로
+    article_idx = Column(Integer, index=True)          # 상품 상세면 article_idx
+    referrer = Column(String(500))                     # 유입 경로
+    user_agent = Column(String(500))                   # User-Agent
+    is_mobile = Column(Boolean, default=False)         # 모바일 여부
+    ip_hash = Column(String(16))                       # IP SHA256 앞 16자 (익명화)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    def __repr__(self):
+        return f"<PageView({self.path}, {self.session_id[:8]}...)>"
+
+
 # 데이터베이스 초기화
 def init_db():
     """데이터베이스 및 테이블 생성"""

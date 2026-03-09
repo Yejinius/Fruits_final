@@ -17,6 +17,67 @@ app.secret_key = FLASK_SECRET_KEY
 limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
 
 
+# ── 익명 방문자 분석 (PageView 트래킹) ────────────────
+import re
+import hashlib
+import uuid
+import threading
+
+_SKIP_PREFIXES = ("/api/", "/data-images/", "/static/", "/favicon")
+_PRODUCT_RE = re.compile(r"^/product/(\d+)")
+
+
+@app.after_request
+def track_page_view(response):
+    """페이지 방문 기록 (비동기, GET 성공 응답만)"""
+    if request.method != "GET" or response.status_code >= 400:
+        return response
+    path = request.path
+    if any(path.startswith(p) for p in _SKIP_PREFIXES):
+        return response
+
+    # 세션 쿠키 (_vid)
+    vid = request.cookies.get("_vid")
+    new_vid = False
+    if not vid:
+        vid = uuid.uuid4().hex
+        new_vid = True
+
+    # article_idx 추출
+    m = _PRODUCT_RE.match(path)
+    article_idx = int(m.group(1)) if m else None
+
+    # 모바일 판별
+    ua = request.headers.get("User-Agent", "")
+    is_mobile = bool(re.search(r"Mobile|Android|iPhone", ua, re.I))
+
+    # IP 익명화
+    ip = request.remote_addr or ""
+    ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
+
+    referrer = request.referrer
+
+    def _save():
+        try:
+            from models import get_session as _gs, PageView
+            s = _gs()
+            s.add(PageView(
+                session_id=vid, path=path, article_idx=article_idx,
+                referrer=referrer, user_agent=ua[:500],
+                is_mobile=is_mobile, ip_hash=ip_hash,
+            ))
+            s.commit()
+            s.close()
+        except Exception:
+            pass
+
+    threading.Thread(target=_save, daemon=True).start()
+
+    if new_vid:
+        response.set_cookie("_vid", vid, max_age=30*24*3600, httponly=True, samesite="Lax")
+    return response
+
+
 @app.route('/data-images/<filename>')
 def serve_data_image(filename):
     """data/ 폴더의 이미지 서빙"""
