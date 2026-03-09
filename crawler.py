@@ -735,7 +735,7 @@ class OS79Crawler:
         total_fail = sum(r.get('fail', 0) for c, r in all_results.items() if c in CATEGORIES)
         deactivated = len(all_deactivated_ids)
         elapsed = (datetime.now() - crawl_started_at).total_seconds()
-        summary = f"[크롤링 완료] {total_success}개 성공"
+        summary = f"[크롤링 및 홈페이지 적용 완료] {total_success}개 성공"
         if total_fail:
             summary += f", {total_fail}개 실패"
         if deactivated:
@@ -775,11 +775,48 @@ class OS79Crawler:
         else:
             msg_lines.append(f"\n🆕 새로운 상품 없음")
 
-        msg_lines.append(f"\n📋 미게시: {len(pending)}개 / 게시 완료: {posted_count}개")
+        msg_lines.append(f"\n📋 밴드 게시: {posted_count}개 / 밴드 미게시: {len(pending)}개")
+
+        # 일간 방문자 & 상품별 인기도 (1:1 채팅에만)
+        analytics_lines = []
+        try:
+            from models import PageView
+            from sqlalchemy import func, cast, Date
+            today = datetime.now().date()
+            pv_session = get_session()
+            daily_visitors = pv_session.query(func.count(func.distinct(PageView.session_id))).filter(
+                cast(PageView.created_at, Date) == today
+            ).scalar() or 0
+            daily_views = pv_session.query(func.count(PageView.id)).filter(
+                cast(PageView.created_at, Date) == today
+            ).scalar() or 0
+
+            top_products = pv_session.query(
+                PageView.article_idx, func.count(PageView.id).label("cnt")
+            ).filter(
+                PageView.article_idx != None,
+                cast(PageView.created_at, Date) == today,
+            ).group_by(PageView.article_idx).order_by(func.count(PageView.id).desc()).limit(5).all()
+
+            analytics_lines.append(f"\n📊 오늘 방문: {daily_visitors}명 / {daily_views}회")
+            if top_products:
+                analytics_lines.append("🏆 인기 상품 TOP5:")
+                for art_idx, cnt in top_products:
+                    p = pv_session.query(Product).filter_by(article_idx=art_idx).first()
+                    name = p.name[:25] if p else f"#{art_idx}"
+                    analytics_lines.append(f"  {cnt}회 — {name}")
+            pv_session.close()
+        except Exception:
+            pass
+
         msg = "\n".join(msg_lines)
         try:
             from telegram_bot import send_message
             send_message(msg)
+            # 방문자 분석은 1:1 채팅에만 별도 전송
+            if analytics_lines:
+                from config import TELEGRAM_CHAT_ID
+                send_message("\n".join(analytics_lines), chat_id=TELEGRAM_CHAT_ID)
         except Exception:
             pass
 
