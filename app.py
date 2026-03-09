@@ -25,6 +25,7 @@ import threading
 
 _SKIP_PREFIXES = ("/api/", "/data-images/", "/static/", "/favicon")
 _PRODUCT_RE = re.compile(r"^/product/(\d+)")
+_MOBILE_RE = re.compile(r"Mobile|Android|iPhone", re.I)
 
 
 @app.after_request
@@ -33,7 +34,7 @@ def track_page_view(response):
     if request.method != "GET" or response.status_code >= 400:
         return response
     path = request.path
-    if any(path.startswith(p) for p in _SKIP_PREFIXES):
+    if path.startswith(_SKIP_PREFIXES):
         return response
 
     # 세션 쿠키 (_vid)
@@ -49,7 +50,7 @@ def track_page_view(response):
 
     # 모바일 판별
     ua = request.headers.get("User-Agent", "")
-    is_mobile = bool(re.search(r"Mobile|Android|iPhone", ua, re.I))
+    is_mobile = bool(_MOBILE_RE.search(ua))
 
     # IP 익명화
     ip = request.remote_addr or ""

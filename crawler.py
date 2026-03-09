@@ -10,7 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import joinedload
 from urllib.parse import urljoin, urlparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Set
 from tqdm import tqdm
 
@@ -781,16 +781,19 @@ class OS79Crawler:
         analytics_lines = []
         try:
             from models import PageView
-            from sqlalchemy import func, cast, Date
-            today = datetime.now().date()
+            from sqlalchemy import func
+            from urllib.parse import urlparse
+            today_start = datetime.combine(datetime.now().date(), datetime.min.time())
+            tomorrow_start = today_start + timedelta(days=1)
+            today_filter = [PageView.created_at >= today_start, PageView.created_at < tomorrow_start]
             pv_session = get_session()
 
             # 기본 지표
             daily_visitors = pv_session.query(func.count(func.distinct(PageView.session_id))).filter(
-                cast(PageView.created_at, Date) == today
+                *today_filter
             ).scalar() or 0
             daily_views = pv_session.query(func.count(PageView.id)).filter(
-                cast(PageView.created_at, Date) == today
+                *today_filter
             ).scalar() or 0
 
             analytics_lines.append(f"\n📊 <b>오늘 방문 분석</b>")
@@ -798,7 +801,7 @@ class OS79Crawler:
 
             # 디바이스 비율
             mobile_count = pv_session.query(func.count(PageView.id)).filter(
-                cast(PageView.created_at, Date) == today, PageView.is_mobile == True
+                *today_filter, PageView.is_mobile == True
             ).scalar() or 0
             pc_count = daily_views - mobile_count
             if daily_views > 0:
@@ -806,12 +809,11 @@ class OS79Crawler:
                 analytics_lines.append(f"📱 모바일: {mobile_count}회({mobile_pct}%) / 💻 PC: {pc_count}회({100-mobile_pct}%)")
 
             # 체류 시간 (세션별 첫/마지막 방문 차이 평균)
-            from sqlalchemy import case
             session_durations = pv_session.query(
                 (func.strftime('%s', func.max(PageView.created_at)) -
                  func.strftime('%s', func.min(PageView.created_at))).label("dur")
             ).filter(
-                cast(PageView.created_at, Date) == today
+                *today_filter
             ).group_by(PageView.session_id).having(
                 func.count(PageView.id) > 1
             ).all()
@@ -824,20 +826,17 @@ class OS79Crawler:
             referrer_stats = pv_session.query(
                 PageView.referrer, func.count(PageView.id)
             ).filter(
-                cast(PageView.created_at, Date) == today,
+                *today_filter,
                 PageView.referrer != None,
             ).group_by(PageView.referrer).order_by(func.count(PageView.id).desc()).limit(10).all()
             if referrer_stats:
                 analytics_lines.append("🔗 유입 경로:")
                 for ref, cnt in referrer_stats:
-                    # 도메인만 추출
-                    import re as _re
-                    domain = _re.search(r'https?://([^/]+)', ref)
-                    label = domain.group(1) if domain else ref[:30]
+                    label = urlparse(ref).hostname or ref[:30]
                     analytics_lines.append(f"  {cnt}회 — {label}")
             # 직접 유입 (referrer 없음) 수
             direct_count = pv_session.query(func.count(PageView.id)).filter(
-                cast(PageView.created_at, Date) == today,
+                *today_filter,
                 PageView.referrer == None,
             ).scalar() or 0
             if direct_count:
@@ -848,13 +847,17 @@ class OS79Crawler:
                 PageView.article_idx, func.count(PageView.id).label("cnt")
             ).filter(
                 PageView.article_idx != None,
-                cast(PageView.created_at, Date) == today,
+                *today_filter,
             ).group_by(PageView.article_idx).order_by(func.count(PageView.id).desc()).limit(5).all()
             if top_products:
+                art_ids = [a for a, _ in top_products]
+                names_map = {
+                    p.article_idx: p.name for p in
+                    pv_session.query(Product.article_idx, Product.name).filter(Product.article_idx.in_(art_ids)).all()
+                }
                 analytics_lines.append("🏆 인기 상품 TOP5:")
                 for art_idx, cnt in top_products:
-                    p = pv_session.query(Product).filter_by(article_idx=art_idx).first()
-                    name = p.name[:25] if p else f"#{art_idx}"
+                    name = names_map.get(art_idx, f"#{art_idx}")[:25]
                     analytics_lines.append(f"  {cnt}회 — {name}")
 
             pv_session.close()

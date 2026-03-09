@@ -37,17 +37,22 @@ def _tg_post(method, data, timeout=10):
         return None
 
 
+_alert_targets = None
+
 def _get_alert_targets():
-    """알림 대상 chat_id 목록 (1:1 + 그룹)"""
-    import os
-    targets = []
-    if TELEGRAM_CHAT_ID:
-        targets.append(TELEGRAM_CHAT_ID)
-    for gid in os.getenv("TELEGRAM_GROUP_IDS", "").split(","):
-        gid = gid.strip()
-        if gid:
-            targets.append(gid)
-    return targets
+    """알림 대상 chat_id 목록 (1:1 + 그룹), 최초 1회만 파싱"""
+    global _alert_targets
+    if _alert_targets is None:
+        import os
+        targets = []
+        if TELEGRAM_CHAT_ID:
+            targets.append(TELEGRAM_CHAT_ID)
+        for gid in os.getenv("TELEGRAM_GROUP_IDS", "").split(","):
+            gid = gid.strip()
+            if gid:
+                targets.append(gid)
+        _alert_targets = tuple(targets)
+    return _alert_targets
 
 
 def send_alert(level, category, message, detail=None):
