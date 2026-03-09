@@ -37,8 +37,21 @@ def _tg_post(method, data, timeout=10):
         return None
 
 
+def _get_alert_targets():
+    """알림 대상 chat_id 목록 (1:1 + 그룹)"""
+    import os
+    targets = []
+    if TELEGRAM_CHAT_ID:
+        targets.append(TELEGRAM_CHAT_ID)
+    for gid in os.getenv("TELEGRAM_GROUP_IDS", "").split(","):
+        gid = gid.strip()
+        if gid:
+            targets.append(gid)
+    return targets
+
+
 def send_alert(level, category, message, detail=None):
-    """에러/이벤트 알림을 텔레그램으로 전송 (non-blocking)"""
+    """에러/이벤트 알림을 텔레그램으로 전송 (non-blocking, 1:1 + 그룹)"""
     def _send():
         emoji = LEVEL_EMOJI.get(level, "📌")
         text = f"{emoji} <b>[{level.upper()}]</b> {category}\n\n{message}"
@@ -46,11 +59,12 @@ def send_alert(level, category, message, detail=None):
             short = str(detail)[:500]
             text += f"\n\n<pre>{short}</pre>"
         text += f"\n\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        _tg_post("sendMessage", {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": text,
-            "parse_mode": "HTML",
-        })
+        for chat_id in _get_alert_targets():
+            _tg_post("sendMessage", {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+            })
 
     threading.Thread(target=_send, daemon=True).start()
 
