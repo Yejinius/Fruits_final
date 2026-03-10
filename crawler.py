@@ -869,10 +869,11 @@ class OS79Crawler:
             from telegram_bot import send_message, _get_alert_targets
             for chat_id in _get_alert_targets():
                 send_message(msg, chat_id=chat_id)
-            # 방문자 분석은 1:1 채팅에만 별도 전송
+            # 방문자 분석도 전체 채팅에 전송
             if analytics_lines:
-                from config import TELEGRAM_CHAT_ID
-                send_message("\n".join(analytics_lines), chat_id=TELEGRAM_CHAT_ID)
+                analytics_msg = "\n".join(analytics_lines)
+                for chat_id in _get_alert_targets():
+                    send_message(analytics_msg, chat_id=chat_id)
         except Exception:
             pass
 
