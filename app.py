@@ -1788,7 +1788,7 @@ def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish
     # ── 1차 시도: 희망사항 원본 그대로 ──
     _set_gen_status("generating", attempt=1, message="AI가 희망사항을 반영하여 대진표를 생성하고 있습니다...")
     prompt1 = _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=False)
-    rounds, err = _call_claude(prompt1, timeout_sec=ATTEMPT1_TIMEOUT, model="sonnet")
+    rounds, err = _call_claude(prompt1, timeout_sec=ATTEMPT1_TIMEOUT, model="opus")
 
     if rounds:
         emojis = _save_bracket_result(rounds, players)
@@ -1807,7 +1807,7 @@ def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish
 
     # ── 2차 시도: 완화된 프롬프트 ──
     prompt2 = _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=True)
-    rounds2, err2 = _call_claude(prompt2, timeout_sec=ATTEMPT2_TIMEOUT, model="sonnet")
+    rounds2, err2 = _call_claude(prompt2, timeout_sec=ATTEMPT2_TIMEOUT, model="opus")
 
     if rounds2:
         emojis = _save_bracket_result(rounds2, players)
