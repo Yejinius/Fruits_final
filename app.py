@@ -1506,6 +1506,238 @@ def api_orders():
     return jsonify(result)
 
 
+# ── 테니스 스코어보드 (실시간 공유, 파일 기반) ────────────────
+import os as _os
+import time as _time
+import fcntl as _fcntl
+
+_TENNIS_DIR = _os.path.join(str(DATA_DIR), 'tennis')
+_os.makedirs(_TENNIS_DIR, exist_ok=True)
+_TENNIS_SCORES_FILE = _os.path.join(_TENNIS_DIR, 'scores.json')
+_TENNIS_BRACKET_FILE = _os.path.join(_TENNIS_DIR, 'bracket.json')
+_TENNIS_PLAYERS_FILE = _os.path.join(_TENNIS_DIR, 'players.json')
+
+
+def _read_json(path, default=None):
+    try:
+        with open(path, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default if default is not None else {}
+
+
+def _write_json(path, data):
+    with open(path, 'w') as f:
+        _fcntl.flock(f, _fcntl.LOCK_EX)
+        json.dump(data, f, ensure_ascii=False)
+        _fcntl.flock(f, _fcntl.LOCK_UN)
+
+
+# ── 테니스 페이지 ────────────────
+@app.route('/tennis')
+def tennis_scoreboard():
+    """테니스 스코어보드 페이지"""
+    from flask import send_from_directory as _sfd
+    return _sfd(app.static_folder, 'tennis.html')
+
+
+# ── 스코어 API ────────────────
+@app.route('/api/tennis/scores', methods=['GET'])
+@limiter.exempt
+def tennis_get_scores():
+    return jsonify(_read_json(_TENNIS_SCORES_FILE, {"scores": {}, "ts": 0}))
+
+
+@app.route('/api/tennis/scores', methods=['POST'])
+@limiter.exempt
+def tennis_update_score():
+    data = request.get_json()
+    key = data.get("key")
+    if key and "scores" in data:
+        store = _read_json(_TENNIS_SCORES_FILE, {"scores": {}, "ts": 0})
+        store["scores"][key] = data["scores"]
+        store["ts"] = int(_time.time() * 1000)
+        _write_json(_TENNIS_SCORES_FILE, store)
+        return jsonify({"ok": True, "ts": store["ts"]})
+    return jsonify({"ok": False}), 400
+
+
+@app.route('/api/tennis/reset', methods=['POST'])
+@limiter.exempt
+def tennis_reset():
+    store = {"scores": {}, "ts": int(_time.time() * 1000)}
+    _write_json(_TENNIS_SCORES_FILE, store)
+    return jsonify({"ok": True})
+
+
+# ── 참가자 API (실시간 동기화) ────────────────
+@app.route('/api/tennis/players', methods=['GET'])
+@limiter.exempt
+def tennis_get_players():
+    return jsonify(_read_json(_TENNIS_PLAYERS_FILE, {"players": [], "settings": {}, "ts": 0}))
+
+
+@app.route('/api/tennis/players', methods=['POST'])
+@limiter.exempt
+def tennis_save_players():
+    data = request.get_json()
+    store = {
+        "players": data.get("players", []),
+        "settings": data.get("settings", {}),
+        "ts": int(_time.time() * 1000),
+    }
+    _write_json(_TENNIS_PLAYERS_FILE, store)
+    return jsonify({"ok": True, "ts": store["ts"]})
+
+
+# ── 대진표 API (실시간 동기화) ────────────────
+@app.route('/api/tennis/bracket', methods=['GET'])
+@limiter.exempt
+def tennis_get_bracket():
+    return jsonify(_read_json(_TENNIS_BRACKET_FILE, {"rounds": [], "emojis": {}, "ts": 0}))
+
+
+@app.route('/api/tennis/bracket', methods=['POST'])
+@limiter.exempt
+def tennis_save_bracket():
+    data = request.get_json()
+    store = {
+        "rounds": data.get("rounds", []),
+        "emojis": data.get("emojis", {}),
+        "date": data.get("date", ""),
+        "ts": int(_time.time() * 1000),
+    }
+    _write_json(_TENNIS_BRACKET_FILE, store)
+    # 대진표 확정 시 스코어 초기화
+    _write_json(_TENNIS_SCORES_FILE, {"scores": {}, "ts": store["ts"]})
+    return jsonify({"ok": True, "ts": store["ts"]})
+
+
+# ── 대진표 AI 생성 (Claude CLI) ────────────────
+@app.route('/api/tennis/generate', methods=['POST'])
+@limiter.limit("10 per hour")
+def tennis_generate():
+    """희망사항을 반영한 AI 대진표 생성 (claude CLI 사용)"""
+    import subprocess
+    import re as _re
+
+    data = request.get_json()
+    players = data.get('players', [])
+    num_courts = data.get('numCourts', 2)
+    duration = data.get('duration', 20)
+    start_time = data.get('startTime', '19:00')
+    end_time = data.get('endTime', '22:00')
+    warmup = data.get('warmup', 20)
+    wish = data.get('wish', '')
+
+    if len(players) < 4:
+        return jsonify({"ok": False, "error": "최소 4명 필요"}), 400
+    if not wish:
+        return jsonify({"ok": False, "error": "희망사항이 없으면 로컬 생성 사용"}), 400
+
+    # 시간 슬롯 계산
+    sh, sm = map(int, start_time.split(':'))
+    eh, em = map(int, end_time.split(':'))
+    total_min = (eh * 60 + em) - (sh * 60 + sm) - warmup
+    num_rounds = total_min // duration
+
+    start_min = sh * 60 + sm + warmup
+    time_slots = []
+    for i in range(num_rounds):
+        fr = start_min + i * duration
+        to = fr + duration
+        fh, fm_ = divmod(fr, 60)
+        th, tm_ = divmod(to, 60)
+        time_slots.append(f"{fh:02d}:{fm_:02d}~{th:02d}:{tm_:02d}")
+
+    player_info = "\n".join(
+        f"- {p['name']} (성별: {'남' if p['gender']=='M' else '여'}, NTRP: {p.get('ntrp', 3.0)})"
+        for p in players
+    )
+
+    prompt = f"""테니스 복식 대진표를 생성해주세요.
+
+## 참가자 ({len(players)}명)
+{player_info}
+
+## 경기 설정
+- 코트 수: {num_courts}
+- 라운드 수: {num_rounds}
+- 경기 시간: {duration}분
+- 타임슬롯: {', '.join(time_slots)}
+
+## 규칙
+1. 각 라운드에 {num_courts}개 코트 × 4명 = {num_courts * 4}명 경기, 나머지는 휴식
+2. 복식 유형: 혼복(남2+여2), 남복(남4), 여복(여4) — 가능한 한 혼복 우선
+3. 모든 참가자의 경기 수가 균등해야 함 (±1 이내)
+4. 최대 2라운드 연속 출전 가능 (3연속 금지)
+5. 같은 파트너 조합 반복 최소화
+
+## 희망사항 (반드시 반영!)
+{wish}
+
+## 출력 형식 (반드시 이 JSON 형식만 출력! 설명 없이!)
+```json
+{{
+  "rounds": [
+    {{
+      "num": 1,
+      "time": "{time_slots[0] if time_slots else '19:20~19:40'}",
+      "courts": [
+        {{
+          "type": "혼복",
+          "team1": ["이름1", "이름2"],
+          "team2": ["이름3", "이름4"]
+        }}
+      ],
+      "rest": ["이름5", "이름6"]
+    }}
+  ]
+}}
+```"""
+
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--output-format", "text"],
+            capture_output=True, text=True, timeout=120,
+            env={**_os.environ, "TERM": "dumb"},
+        )
+
+        if result.returncode != 0:
+            return jsonify({"ok": False, "error": f"Claude CLI 오류: {result.stderr[:200]}"}), 500
+
+        text = result.stdout.strip()
+
+        # Parse JSON from response
+        json_match = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, _re.DOTALL)
+        if json_match:
+            bracket_data = json.loads(json_match.group(1))
+        elif text.startswith('{'):
+            bracket_data = json.loads(text)
+        else:
+            # Try finding JSON object anywhere in text
+            brace_match = _re.search(r'\{[\s\S]*"rounds"[\s\S]*\}', text)
+            if brace_match:
+                bracket_data = json.loads(brace_match.group(0))
+            else:
+                return jsonify({"ok": False, "error": "AI 응답에서 JSON을 찾을 수 없습니다"}), 500
+
+        rounds = bracket_data.get("rounds", [])
+        if not rounds:
+            return jsonify({"ok": False, "error": "대진표가 비어있습니다"}), 500
+
+        return jsonify({"ok": True, "rounds": rounds})
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "AI 생성 시간 초과 (2분)"}), 500
+    except json.JSONDecodeError as e:
+        return jsonify({"ok": False, "error": f"JSON 파싱 실패: {str(e)[:100]}"}), 500
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "Claude CLI가 설치되어 있지 않습니다"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
 if __name__ == '__main__':
     import os
     is_production = os.getenv('FLASK_ENV') == 'production'

@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🎾 테니스 스코어보드</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, 'Segoe UI', sans-serif;
+  background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 50%, #fff8e1 100%);
+  min-height: 100vh;
+  padding: 0;
+  padding-bottom: 80px;
+}
+
+/* ── Tab Nav ── */
+.tab-nav {
+  display: flex;
+  background: white;
+  border-bottom: 2px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+.tab-btn {
+  flex: 1;
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 0.95em;
+  font-weight: 600;
+  border: none;
+  background: white;
+  color: #888;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.tab-btn.active {
+  color: #2e7d32;
+  border-bottom: 3px solid #2e7d32;
+  background: #f1f8e9;
+}
+
+.view { display: none; padding: 12px; }
+.view.active { display: block; }
+
+/* ── Existing scoreboard styles ── */
+.header {
+  text-align: center;
+  padding: 16px 8px;
+  background: linear-gradient(135deg, #2e7d32, #43a047);
+  border-radius: 20px;
+  color: white;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 15px rgba(46,125,50,0.3);
+}
+.header h1 { font-size: 1.4em; }
+.header .date { font-size: 0.85em; opacity: 0.9; margin-top: 4px; }
+.header .ball { display: inline-block; animation: bounce 1s infinite; }
+@keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+
+.current-badge {
+  display: inline-block; background: #ffeb3b; color: #333;
+  font-size: 0.7em; font-weight: 700; padding: 3px 10px;
+  border-radius: 12px; margin-left: 6px; animation: pulse 1.5s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+.round-card {
+  background: white; border-radius: 16px; margin-bottom: 12px;
+  overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.08); transition: all 0.3s;
+}
+.round-card.active { box-shadow: 0 4px 20px rgba(46,125,50,0.25); border: 2px solid #43a047; }
+.round-card.completed { opacity: 0.7; }
+.round-header {
+  background: #f5f5f5; padding: 10px 14px; display: flex;
+  justify-content: space-between; align-items: center; font-weight: 600; font-size: 0.9em;
+}
+.round-card.active .round-header { background: linear-gradient(135deg, #e8f5e9, #c8e6c9); }
+.round-time { color: #666; font-size: 0.85em; font-weight: 400; }
+
+.court { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+.court:last-child { border-bottom: none; }
+.court-label { font-size: 0.72em; color: #888; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
+.court-type { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.9em; font-weight: 600; }
+.type-mixed { background: #e3f2fd; color: #1565c0; }
+.type-women { background: #fce4ec; color: #c62828; }
+.type-men { background: #e8eaf6; color: #283593; }
+
+.match-row { display: flex; align-items: center; gap: 6px; }
+.team { flex:1; text-align:center; padding:8px 4px; border-radius:12px; background:#fafafa; font-size:0.85em; line-height:1.4; }
+.team.winner { background: #e8f5e9; border: 1px solid #a5d6a7; }
+.team-names { font-weight: 600; color: #333; }
+.team-emoji { font-size: 1.1em; }
+.vs { font-weight:700; color:#ef5350; font-size:0.8em; flex-shrink:0; }
+
+.score-area { display:flex; align-items:center; justify-content:center; gap:4px; margin-top:8px; }
+.score-btn {
+  width:36px; height:36px; border-radius:50%; border:none; font-size:1.1em;
+  font-weight:700; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center;
+}
+.score-btn:active { transform: scale(0.9); }
+.score-btn.minus { background: #ffebee; color: #ef5350; }
+.score-btn.plus { background: #e8f5e9; color: #2e7d32; }
+.score-display { font-size:1.6em; font-weight:800; min-width:90px; text-align:center; color:#333; font-variant-numeric:tabular-nums; }
+
+.rest-area { padding:6px 14px 10px; font-size:0.75em; color:#999; }
+.rest-area span { color: #bbb; }
+
+.next-up { background:linear-gradient(135deg,#fff3e0,#ffe0b2); border-radius:14px; padding:12px 16px; margin-bottom:12px; border:1px solid #ffcc80; }
+.next-up-title { font-weight:700; color:#e65100; font-size:0.9em; margin-bottom:6px; }
+.next-up-info { font-size:0.82em; color:#555; line-height:1.5; }
+
+.summary { background:white; border-radius:16px; padding:14px; margin-top:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08); }
+.summary h3 { font-size:0.95em; color:#2e7d32; margin-bottom:10px; text-align:center; }
+.summary-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; }
+.summary-item { display:flex; justify-content:space-between; padding:4px 8px; background:#f9f9f9; border-radius:8px; font-size:0.8em; }
+.summary-item.rank-1 { background:linear-gradient(135deg,#fff9c4,#fff176); border:2px solid #ffd600; font-weight:700; font-size:0.9em; padding:6px 10px; animation:glow 1.5s infinite alternate; }
+.summary-item.rank-2 { background:linear-gradient(135deg,#f5f5f5,#e0e0e0); border:1px solid #bdbdbd; font-weight:600; }
+.summary-item.rank-3 { background:linear-gradient(135deg,#fff3e0,#ffe0b2); border:1px solid #ffcc80; font-weight:600; }
+@keyframes glow { from{box-shadow:0 0 5px rgba(255,214,0,0.3)} to{box-shadow:0 0 15px rgba(255,214,0,0.6)} }
+
+.champion-banner { background:linear-gradient(135deg,#ffd600,#ffab00); border-radius:20px; padding:20px; text-align:center; margin-bottom:12px; box-shadow:0 4px 20px rgba(255,214,0,0.4); animation:champion-appear 0.6s ease-out; }
+@keyframes champion-appear { from{transform:scale(0.8);opacity:0} to{transform:scale(1);opacity:1} }
+.champion-banner .crown { font-size:3em; animation:bounce 1s infinite; }
+.champion-banner .champion-name { font-size:1.5em; font-weight:800; color:#333; margin:8px 0; }
+.champion-banner .champion-score { font-size:1em; color:#555; }
+.champion-banner .podium { display:flex; justify-content:center; align-items:flex-end; gap:12px; margin-top:16px; }
+.podium-item { text-align:center; padding:8px; border-radius:12px; min-width:70px; }
+.podium-item.gold { background:rgba(255,255,255,0.6); }
+.podium-item.silver { background:rgba(255,255,255,0.4); }
+.podium-item.bronze { background:rgba(255,255,255,0.3); }
+.podium-item .medal { font-size:1.5em; }
+.podium-item .p-name { font-size:0.8em; font-weight:700; }
+.podium-item .p-wins { font-size:0.7em; color:#555; }
+
+.confetti-container { position:fixed; top:0;left:0; width:100%;height:100%; pointer-events:none; z-index:999; overflow:hidden; }
+.confetti { position:absolute; width:10px;height:10px; top:-10px; animation:confetti-fall linear forwards; }
+@keyframes confetti-fall { to{top:110vh;transform:rotate(720deg)} }
+
+.status-bar {
+  position:fixed; bottom:0;left:0;right:0; background:rgba(255,255,255,0.95);
+  backdrop-filter:blur(10px); padding:10px 16px; display:flex;
+  justify-content:space-between; align-items:center; font-size:0.78em; color:#888;
+  border-top:1px solid #eee; z-index:100;
+}
+.sync-dot { width:8px;height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
+.sync-dot.ok { background:#4caf50; }
+.sync-dot.err { background:#f44336; }
+
+/* ── Generator styles ── */
+.gen-card {
+  background: white; border-radius: 16px; padding: 16px;
+  margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+.gen-card h3 { font-size: 1em; color: #2e7d32; margin-bottom: 12px; }
+
+.player-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 0; border-bottom: 1px solid #f5f5f5;
+}
+.player-row input[type="text"] {
+  flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 10px;
+  font-size: 0.95em; min-width: 0;
+}
+.player-row input[type="number"] {
+  width: 60px; padding: 10px 4px; border: 1px solid #ddd; border-radius: 10px;
+  font-size: 0.95em; text-align: center;
+}
+.gender-toggle {
+  display: flex; border-radius: 10px; overflow: hidden; border: 1px solid #ddd; flex-shrink: 0;
+}
+.gender-toggle button {
+  padding: 8px 12px; border: none; font-size: 0.85em; font-weight: 700; cursor: pointer;
+  transition: all 0.15s;
+}
+.gender-toggle button.active-m { background: #1565c0; color: white; }
+.gender-toggle button.active-f { background: #c62828; color: white; }
+.gender-toggle button:not(.active-m):not(.active-f) { background: #f5f5f5; color: #999; }
+
+.del-btn {
+  width: 32px; height: 32px; border-radius: 50%; border: none;
+  background: #ffebee; color: #ef5350; font-size: 1em; cursor: pointer; flex-shrink: 0;
+}
+.del-btn:active { transform: scale(0.9); }
+
+.add-player-btn {
+  width: 100%; padding: 12px; border: 2px dashed #c8e6c9; border-radius: 12px;
+  background: transparent; color: #43a047; font-size: 0.9em; font-weight: 600;
+  cursor: pointer; margin-top: 8px;
+}
+.add-player-btn:active { background: #e8f5e9; }
+
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 0; border-bottom: 1px solid #f5f5f5;
+}
+.settings-row label { font-size: 0.9em; color: #555; font-weight: 500; }
+.settings-row input, .settings-row select {
+  padding: 8px 12px; border: 1px solid #ddd; border-radius: 10px;
+  font-size: 0.9em; width: 80px; text-align: center;
+}
+
+.wish-textarea {
+  width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 12px;
+  font-size: 0.9em; min-height: 60px; resize: vertical; font-family: inherit;
+}
+
+.gen-btn {
+  width: 100%; padding: 16px; border: none; border-radius: 16px;
+  font-size: 1.1em; font-weight: 700; cursor: pointer; margin-top: 12px;
+  transition: all 0.2s;
+}
+.gen-btn:active { transform: scale(0.97); }
+.gen-btn.primary { background: linear-gradient(135deg, #2e7d32, #43a047); color: white; box-shadow: 0 4px 15px rgba(46,125,50,0.3); }
+.gen-btn.secondary { background: #f5f5f5; color: #555; }
+.gen-btn.confirm { background: linear-gradient(135deg, #ff8f00, #ffab00); color: white; box-shadow: 0 4px 15px rgba(255,152,0,0.3); }
+
+.gen-stats {
+  display: grid; grid-template-columns: repeat(2,1fr); gap: 6px; margin-top: 10px;
+}
+.gen-stat-item {
+  padding: 6px 8px; background: #f9f9f9; border-radius: 8px; font-size: 0.8em;
+  display: flex; justify-content: space-between;
+}
+.preview-note {
+  background: #fff3e0; border-radius: 10px; padding: 10px 12px;
+  font-size: 0.82em; color: #e65100; margin-bottom: 10px;
+  border: 1px solid #ffe0b2;
+}
+</style>
+</head>
+<body>
+
+<!-- Tab Navigation -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('generator')">📋 대진표 생성</button>
+  <button class="tab-btn" onclick="switchTab('scoreboard')">🎾 스코어보드</button>
+</div>
+
+<!-- ═══ GENERATOR VIEW ═══ -->
+<div id="view-generator" class="view active">
+  <div class="gen-card">
+    <h3>👥 참가자 등록</h3>
+    <div id="player-list"></div>
+    <button class="add-player-btn" onclick="addPlayerRow()">+ 참가자 추가</button>
+    <button class="add-player-btn" onclick="loadPreset()" style="border-color:#7986cb;color:#5c6bc0;margin-top:4px">🎾 프리셋 불러오기</button>
+  </div>
+
+  <div class="gen-card">
+    <h3>⚙️ 경기 설정</h3>
+    <div class="settings-row">
+      <label>🏟️ 코트 수</label>
+      <select id="set-courts"><option value="1">1코트</option><option value="2" selected>2코트</option></select>
+    </div>
+    <div class="settings-row">
+      <label>⏱️ 경기 시간(분)</label>
+      <input type="number" id="set-duration" value="20" min="10" max="60" step="5">
+    </div>
+    <div class="settings-row">
+      <label>🕐 시작 시간</label>
+      <input type="time" id="set-start" value="19:00" style="width:110px">
+    </div>
+    <div class="settings-row">
+      <label>🏁 종료 시간</label>
+      <input type="time" id="set-end" value="22:00" style="width:110px">
+    </div>
+    <div class="settings-row">
+      <label>🤸 몸풀기(분)</label>
+      <input type="number" id="set-warmup" value="20" min="0" max="60" step="5">
+    </div>
+  </div>
+
+  <div class="gen-card">
+    <h3>💬 희망사항</h3>
+    <textarea class="wish-textarea" id="set-wish" placeholder="예: 가능하면 여복을 최소 2경기 9시 전으로 배치해줘"></textarea>
+  </div>
+
+  <button class="gen-btn primary" onclick="generateBracket()">🎾 대진표 생성</button>
+
+  <div id="preview-area"></div>
+</div>
+
+<!-- ═══ SCOREBOARD VIEW ═══ -->
+<div id="view-scoreboard" class="view">
+  <div class="header">
+    <h1><span class="ball">🎾</span> 테니스 스코어보드</h1>
+    <div class="date" id="sb-date"></div>
+  </div>
+  <div id="champion"></div>
+  <div id="next-up"></div>
+  <div id="rounds"></div>
+  <div id="summary"></div>
+</div>
+
+<div class="status-bar">
+  <div><span class="sync-dot ok" id="syncDot"></span> <span id="syncText">실시간 동기화 중</span></div>
+  <div id="playerCount"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════
+   TAB SWITCHING
+   ═══════════════════════════════════════════ */
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    b.classList.toggle('active', (tab==='generator' && i===0) || (tab==='scoreboard' && i===1));
+  });
+  document.getElementById('view-generator').classList.toggle('active', tab==='generator');
+  document.getElementById('view-scoreboard').classList.toggle('active', tab==='scoreboard');
+  if (tab === 'scoreboard') render();
+}
+
+/* ═══════════════════════════════════════════
+   PLAYER INPUT
+   ═══════════════════════════════════════════ */
+let playerIdCounter = 0;
+
+function addPlayerRow(name='', gender='M', ntrp='') {
+  const list = document.getElementById('player-list');
+  if (list.children.length >= 20) return;
+  const id = ++playerIdCounter;
+  const row = document.createElement('div');
+  row.className = 'player-row';
+  row.id = 'pr-' + id;
+  row.innerHTML = `
+    <input type="text" placeholder="이름" value="${name}" onkeydown="if(event.key==='Enter'){event.preventDefault();addPlayerRow();}" data-field="name">
+    <div class="gender-toggle">
+      <button class="${gender==='M'?'active-m':''}" onclick="setGender(${id},'M')">M</button>
+      <button class="${gender==='F'?'active-f':''}" onclick="setGender(${id},'F')">F</button>
+    </div>
+    <input type="number" placeholder="NTRP" value="${ntrp}" min="1" max="7" step="0.5" data-field="ntrp">
+    <button class="del-btn" onclick="document.getElementById('pr-${id}').remove()">🗑️</button>
+  `;
+  list.appendChild(row);
+  if (!name) row.querySelector('input[data-field="name"]').focus();
+}
+
+function setGender(id, g) {
+  const row = document.getElementById('pr-' + id);
+  if (!row) return;
+  const btns = row.querySelectorAll('.gender-toggle button');
+  btns[0].className = g==='M' ? 'active-m' : '';
+  btns[1].className = g==='F' ? 'active-f' : '';
+}
+
+function getPlayers() {
+  const rows = document.querySelectorAll('.player-row');
+  const players = [];
+  rows.forEach(row => {
+    const name = row.querySelector('input[data-field="name"]').value.trim();
+    if (!name) return;
+    const gBtns = row.querySelectorAll('.gender-toggle button');
+    const gender = gBtns[0].classList.contains('active-m') ? 'M' : 'F';
+    const ntrp = parseFloat(row.querySelector('input[data-field="ntrp"]').value) || 3.0;
+    players.push({ name, gender, ntrp });
+  });
+  return players;
+}
+
+// Preset data
+const PRESET_PLAYERS = [
+  { name: '정예진', gender: 'M', ntrp: 3.5 },
+  { name: '강동우', gender: 'M', ntrp: 3.0 },
+  { name: '김지희', gender: 'F', ntrp: 2.0 },
+  { name: '손영훈', gender: 'M', ntrp: 2.0 },
+  { name: '김미주', gender: 'F', ntrp: 2.0 },
+  { name: '김현수', gender: 'F', ntrp: 2.0 },
+  { name: '에레나', gender: 'F', ntrp: 2.3 },
+  { name: '오뎅탕', gender: 'F', ntrp: 2.3 },
+  { name: '조동찬', gender: 'M', ntrp: 3.3 },
+  { name: '최민준', gender: 'M', ntrp: 2.8 },
+  { name: '칼자루', gender: 'M', ntrp: 1.9 },
+  { name: '테린이721', gender: 'F', ntrp: 1.0 },
+  { name: '홍성완', gender: 'M', ntrp: 3.3 },
+];
+
+function loadPreset() {
+  document.getElementById('player-list').innerHTML = '';
+  playerIdCounter = 0;
+  PRESET_PLAYERS.forEach(p => addPlayerRow(p.name, p.gender, p.ntrp));
+}
+
+// Empty rows added in INIT after server load attempt
+
+/* ═══════════════════════════════════════════
+   BRACKET GENERATION ALGORITHM
+   ═══════════════════════════════════════════ */
+function generateBracket() {
+  const players = getPlayers();
+  if (players.length < 4) { alert('최소 4명을 입력해주세요!'); return; }
+
+  const numCourts = parseInt(document.getElementById('set-courts').value);
+  const duration = parseInt(document.getElementById('set-duration').value);
+  const startTime = document.getElementById('set-start').value;
+  const endTime = document.getElementById('set-end').value;
+  const warmup = parseInt(document.getElementById('set-warmup').value);
+  const wish = document.getElementById('set-wish').value.trim();
+
+  const playersPerRound = numCourts * 4;
+  if (players.length < playersPerRound) {
+    alert(`${numCourts}코트에는 최소 ${playersPerRound}명이 필요합니다!`);
+    return;
+  }
+
+  // 희망사항이 있으면 → 백엔드 Claude API로 생성
+  if (wish) {
+    generateWithAI(players, numCourts, duration, startTime, endTime, warmup, wish);
+    return;
+  }
+
+  // Calculate rounds from time window
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  const totalAvailMin = (eh * 60 + em) - (sh * 60 + sm) - warmup;
+  if (totalAvailMin < duration) { alert('시간이 부족합니다! 종료시간을 늘리거나 경기시간을 줄여주세요.'); return; }
+  const numRounds = Math.floor(totalAvailMin / duration);
+
+  // Build time slots
+  let startMin = sh * 60 + sm + warmup;
+  const timeSlots = [];
+  for (let i = 0; i < numRounds; i++) {
+    const from = startMin + i * duration;
+    const to = from + duration;
+    const fh = String(Math.floor(from/60)).padStart(2,'0');
+    const fm = String(from%60).padStart(2,'0');
+    const th = String(Math.floor(to/60)).padStart(2,'0');
+    const tm = String(to%60).padStart(2,'0');
+    timeSlots.push(`${fh}:${fm}~${th}:${tm}`);
+  }
+
+  // Greedy scheduler
+  const games = {}, lastPlayed = {};
+  players.forEach(p => { games[p.name] = 0; lastPlayed[p.name] = -2; });
+
+  const rounds = [];
+  for (let rnd = 0; rnd < numRounds; rnd++) {
+    // Sort: fewest games, then longest rest, then random
+    const sorted = [...players].sort((a, b) => {
+      if (games[a.name] !== games[b.name]) return games[a.name] - games[b.name];
+      const restA = rnd - lastPlayed[a.name], restB = rnd - lastPlayed[b.name];
+      if (restA !== restB) return restB - restA;
+      return Math.random() - 0.5;
+    });
+
+    // Enforce max 2 consecutive
+    const eligible = [], deferred = [];
+    for (const p of sorted) {
+      if (lastPlayed[p.name] === rnd - 1 && rnd >= 2) {
+        // Check if played rnd-2 too
+        const playedRnd2 = rounds[rnd-2] && rounds[rnd-2].playing.includes(p.name);
+        if (playedRnd2) { deferred.push(p); continue; }
+      }
+      eligible.push(p);
+    }
+    const pool = [...eligible, ...deferred];
+    const playing = pool.slice(0, playersPerRound).map(p => p.name);
+    const resting = players.filter(p => !playing.includes(p.name)).map(p => p.name);
+
+    playing.forEach(n => { games[n]++; lastPlayed[n] = rnd; });
+    rounds.push({ num: rnd + 1, time: timeSlots[rnd], playing, resting });
+  }
+
+  // Assign courts with proper gender balancing
+  const finalRounds = rounds.map(r => {
+    const playingPlayers = r.playing.map(n => players.find(p => p.name === n));
+    const males = playingPlayers.filter(p => p.gender === 'M');
+    const females = playingPlayers.filter(p => p.gender === 'F');
+
+    // Shuffle within each gender pool for variety
+    const shuffle = arr => { for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];} return arr; };
+    shuffle(males); shuffle(females);
+
+    const courts = [];
+    const usedM = [], usedF = [];
+
+    for (let ci = 0; ci < numCourts; ci++) {
+      const remM = males.filter(p => !usedM.includes(p.name));
+      const remF = females.filter(p => !usedF.includes(p.name));
+
+      let type, team1, team2;
+
+      if (remM.length >= 2 && remF.length >= 2) {
+        // 혼복: 남2 + 여2
+        type = '혼복';
+        const m = remM.splice(0, 2);
+        const f = remF.splice(0, 2);
+        team1 = [m[0].name, f[0].name];
+        team2 = [m[1].name, f[1].name];
+        usedM.push(m[0].name, m[1].name);
+        usedF.push(f[0].name, f[1].name);
+      } else if (remM.length >= 4) {
+        // 남복: 남4
+        type = '남복';
+        const m = remM.splice(0, 4);
+        team1 = [m[0].name, m[1].name];
+        team2 = [m[2].name, m[3].name];
+        m.forEach(p => usedM.push(p.name));
+      } else if (remF.length >= 4) {
+        // 여복: 여4
+        type = '여복';
+        const f = remF.splice(0, 4);
+        team1 = [f[0].name, f[1].name];
+        team2 = [f[2].name, f[3].name];
+        f.forEach(p => usedF.push(p.name));
+      } else if (remM.length >= 1 && remF.length >= 1) {
+        // 혼복 (남녀 비율 불균등 - 가능한만큼 섞기)
+        type = '혼복';
+        const courtPlayers = [];
+        while (courtPlayers.length < 4 && (remM.length > 0 || remF.length > 0)) {
+          if (remM.length > 0 && (courtPlayers.filter(p=>p.gender==='M').length <= courtPlayers.filter(p=>p.gender==='F').length || remF.length === 0)) {
+            const p = remM.shift(); courtPlayers.push(p); usedM.push(p.name);
+          } else if (remF.length > 0) {
+            const p = remF.shift(); courtPlayers.push(p); usedF.push(p.name);
+          }
+        }
+        team1 = [courtPlayers[0].name, courtPlayers[1].name];
+        team2 = [courtPlayers[2].name, courtPlayers[3].name];
+      } else {
+        // Fallback: 남은 사람 아무나
+        type = remF.length >= 3 ? '여복' : '남복';
+        const pool = [...remM, ...remF].splice(0, 4);
+        team1 = [pool[0].name, pool[1].name];
+        team2 = [pool[2].name, pool[3].name];
+        pool.forEach(p => { if(p.gender==='M') usedM.push(p.name); else usedF.push(p.name); });
+      }
+
+      courts.push({ type, team1, team2 });
+    }
+    return { num: r.num, time: r.time, courts, rest: r.resting };
+  });
+
+  // Stats
+  const typeCounts = { '혼복': 0, '여복': 0, '남복': 0 };
+  finalRounds.forEach(r => r.courts.forEach(c => typeCounts[c.type]++));
+
+  // Consecutive check
+  let maxConsec = 0;
+  players.forEach(p => {
+    let consec = 0;
+    for (let i = 0; i < finalRounds.length; i++) {
+      const inRound = finalRounds[i].courts.some(c => c.team1.includes(p.name) || c.team2.includes(p.name));
+      consec = inRound ? consec + 1 : 0;
+      maxConsec = Math.max(maxConsec, consec);
+    }
+  });
+
+  showPreview(finalRounds, games, typeCounts, maxConsec, players, wish, startTime, warmup, duration);
+}
+
+/* ═══════════════════════════════════════════
+   PREVIEW
+   ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   AI-POWERED BRACKET GENERATION (via Claude API)
+   ═══════════════════════════════════════════ */
+async function generateWithAI(players, numCourts, duration, startTime, endTime, warmup, wish) {
+  const area = document.getElementById('preview-area');
+  area.innerHTML = `<div class="gen-card" style="text-align:center;padding:40px">
+    <div style="font-size:2em;animation:bounce 1s infinite">🤖</div>
+    <div style="margin-top:10px;color:#555">AI가 희망사항을 반영하여 대진표를 생성하고 있습니다...</div>
+    <div style="margin-top:6px;font-size:0.8em;color:#999">약 10~20초 소요</div>
+  </div>`;
+  area.scrollIntoView({ behavior: 'smooth' });
+
+  try {
+    const res = await fetch('/api/tennis/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ players, numCourts, duration, startTime, endTime, warmup, wish })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `서버 오류 (${res.status})`);
+    }
+
+    const data = await res.json();
+    if (!data.ok || !data.rounds) throw new Error(data.error || '대진표 생성 실패');
+
+    // Calculate stats from AI response
+    const genRounds = data.rounds;
+    const games = {};
+    players.forEach(p => games[p.name] = 0);
+    genRounds.forEach(r => r.courts.forEach(c => {
+      [...c.team1, ...c.team2].forEach(n => games[n] = (games[n]||0) + 1);
+    }));
+
+    const typeCounts = { '혼복': 0, '여복': 0, '남복': 0 };
+    genRounds.forEach(r => r.courts.forEach(c => typeCounts[c.type] = (typeCounts[c.type]||0) + 1));
+
+    let maxConsec = 0;
+    players.forEach(p => {
+      let consec = 0;
+      for (let i = 0; i < genRounds.length; i++) {
+        const inRound = genRounds[i].courts.some(c => c.team1.includes(p.name) || c.team2.includes(p.name));
+        consec = inRound ? consec + 1 : 0;
+        maxConsec = Math.max(maxConsec, consec);
+      }
+    });
+
+    showPreview(genRounds, games, typeCounts, maxConsec, players, wish, startTime, warmup, duration);
+
+  } catch(e) {
+    area.innerHTML = `<div class="gen-card" style="text-align:center;padding:30px">
+      <div style="font-size:1.5em">⚠️</div>
+      <div style="margin-top:8px;color:#c62828;font-weight:600">AI 생성 실패</div>
+      <div style="margin-top:6px;font-size:0.85em;color:#555">${e.message}</div>
+      <button class="gen-btn secondary" onclick="generateBracketLocal()" style="margin-top:12px">🔄 로컬 알고리즘으로 대신 생성</button>
+    </div>`;
+  }
+}
+
+// 로컬 생성 fallback (희망사항 무시하고 기본 알고리즘 사용)
+function generateBracketLocal() {
+  const savedWish = document.getElementById('set-wish').value;
+  document.getElementById('set-wish').value = '';
+  generateBracket();
+  document.getElementById('set-wish').value = savedWish;
+}
+
+function showPreview(genRounds, games, typeCounts, maxConsec, players, wish, startTime, warmup, duration) {
+  const area = document.getElementById('preview-area');
+
+  const emojiPool = ['💪','⚡','👑','🔥','🌟','🎯','⚔️','🌸','🌺','💎','🍢','🐣','🌹','🎀','🦊','🐱','🍀','⭐','🌙','🎵'];
+  const genEmojis = {};
+  players.forEach((p, i) => genEmojis[p.name] = emojiPool[i % emojiPool.length]);
+
+  const TYPE_CLASS = { '혼복':'type-mixed', '여복':'type-women', '남복':'type-men' };
+  const TYPE_EMOJI = { '혼복':'💑', '여복':'👩‍👩‍👧', '남복':'👨‍👨‍👦' };
+
+  let html = '';
+
+  if (wish) {
+    html += `<div class="preview-note">💬 희망사항: ${wish}</div>`;
+  }
+
+  // Stats
+  html += `<div class="gen-card"><h3>📊 배분 결과</h3>`;
+  html += `<div style="font-size:0.82em;color:#555;margin-bottom:8px">
+    유형: 혼복 ${typeCounts['혼복']} / 여복 ${typeCounts['여복']} / 남복 ${typeCounts['남복']} · 최대연속: ${maxConsec}회
+  </div>`;
+  html += `<div class="gen-stats">`;
+  const sorted = [...players].sort((a,b) => (games[b.name]||0) - (games[a.name]||0));
+  sorted.forEach(p => {
+    html += `<div class="gen-stat-item"><span>${genEmojis[p.name]} ${p.name}</span><span><b>${games[p.name]}</b>게임</span></div>`;
+  });
+  html += `</div></div>`;
+
+  // Round preview
+  genRounds.forEach(r => {
+    html += `<div class="round-card"><div class="round-header"><div>${r.num}라운드</div><div class="round-time">${r.time}</div></div>`;
+    r.courts.forEach((c, ci) => {
+      html += `<div class="court"><div class="court-label">🏟️ 코트${ci+1} · <span class="court-type ${TYPE_CLASS[c.type]}">${c.type}</span></div>`;
+      html += `<div class="match-row">
+        <div class="team"><div class="team-emoji">${c.team1.map(n=>genEmojis[n]||'🎾').join('')}</div><div class="team-names">${c.team1.join(' & ')}</div></div>
+        <div class="vs">VS</div>
+        <div class="team"><div class="team-emoji">${c.team2.map(n=>genEmojis[n]||'🎾').join('')}</div><div class="team-names">${c.team2.join(' & ')}</div></div>
+      </div></div>`;
+    });
+    html += `<div class="rest-area">☕ 쉬는 중: <span>${r.rest.map(n=>(genEmojis[n]||'')+n).join(', ')}</span></div></div>`;
+  });
+
+  // Action buttons
+  html += `<button class="gen-btn confirm" onclick="applyBracket()" style="margin-top:12px">✅ 확정 — 스코어보드에 적용</button>`;
+  html += `<button class="gen-btn secondary" onclick="generateBracket()" style="margin-top:8px">🔄 다시 생성</button>`;
+
+  area.innerHTML = html;
+  area.scrollIntoView({ behavior: 'smooth' });
+
+  // Store pending bracket for apply
+  const endTime = document.getElementById('set-end').value;
+  window._pendingBracket = { rounds: genRounds, emojis: genEmojis, players, startTime, endTime, warmup, duration };
+}
+
+async function applyBracket() {
+  const b = window._pendingBracket;
+  if (!b) return;
+
+  ROUNDS.length = 0;
+  b.rounds.forEach(r => ROUNDS.push(r));
+
+  Object.keys(EMOJIS).forEach(k => delete EMOJIS[k]);
+  Object.assign(EMOJIS, b.emojis);
+
+  // Save bracket to server (scores auto-reset on server side)
+  try {
+    await fetch('/api/tennis/bracket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rounds: ROUNDS, emojis: EMOJIS, date: new Date().toDateString() })
+    });
+    scores = {};
+    lastTs = 0;
+  } catch(e) { console.error('bracket save failed', e); }
+
+  // Switch to scoreboard
+  switchTab('scoreboard');
+}
+
+/* ═══════════════════════════════════════════
+   PLAYER SYNC — 참가자 데이터 서버 동기화
+   ═══════════════════════════════════════════ */
+let _playerSaveTimer = null;
+let _playerTs = 0;
+
+function schedulePlayerSave() {
+  // Debounce: 1초 후 저장 (연속 입력 시 마지막만)
+  clearTimeout(_playerSaveTimer);
+  _playerSaveTimer = setTimeout(savePlayersToServer, 1000);
+}
+
+async function savePlayersToServer() {
+  const players = getPlayers();
+  const settings = {
+    courts: document.getElementById('set-courts').value,
+    duration: document.getElementById('set-duration').value,
+    startTime: document.getElementById('set-start').value,
+    endTime: document.getElementById('set-end').value,
+    warmup: document.getElementById('set-warmup').value,
+    wish: document.getElementById('set-wish').value,
+  };
+  try {
+    const res = await fetch('/api/tennis/players', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ players, settings })
+    });
+    const data = await res.json();
+    if (data.ts) _playerTs = data.ts;
+  } catch(e) {}
+}
+
+async function loadPlayersFromServer() {
+  try {
+    const res = await fetch('/api/tennis/players');
+    const data = await res.json();
+    if (data.ts > _playerTs && data.players && data.players.length > 0) {
+      // Skip if user is actively typing (focused input in player list)
+      const activeEl = document.activeElement;
+      const isEditing = activeEl && activeEl.closest && activeEl.closest('#player-list, #set-wish');
+      if (isEditing) return false;
+      _playerTs = data.ts;
+      // Rebuild player list
+      document.getElementById('player-list').innerHTML = '';
+      playerIdCounter = 0;
+      data.players.forEach(p => addPlayerRow(p.name, p.gender, p.ntrp));
+      // Restore settings
+      if (data.settings) {
+        if (data.settings.courts) document.getElementById('set-courts').value = data.settings.courts;
+        if (data.settings.duration) document.getElementById('set-duration').value = data.settings.duration;
+        if (data.settings.startTime) document.getElementById('set-start').value = data.settings.startTime;
+        if (data.settings.endTime) document.getElementById('set-end').value = data.settings.endTime;
+        if (data.settings.warmup) document.getElementById('set-warmup').value = data.settings.warmup;
+        if (data.settings.wish) document.getElementById('set-wish').value = data.settings.wish;
+      }
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// Observe input changes for auto-save
+function setupPlayerAutoSync() {
+  const genView = document.getElementById('view-generator');
+  genView.addEventListener('input', schedulePlayerSave);
+  genView.addEventListener('change', schedulePlayerSave);
+  // Also watch for add/delete clicks
+  new MutationObserver(schedulePlayerSave).observe(
+    document.getElementById('player-list'), { childList: true }
+  );
+}
+
+/* ═══════════════════════════════════════════
+   SCOREBOARD (dynamic ROUNDS & EMOJIS)
+   ═══════════════════════════════════════════ */
+let ROUNDS = [];
+let EMOJIS = {};
+
+const TYPE_CLASS = { '혼복':'type-mixed', '여복':'type-women', '남복':'type-men' };
+const TYPE_EMOJI = { '혼복':'💑', '여복':'👩‍👩‍👧', '남복':'👨‍👨‍👦' };
+
+let scores = {};
+let lastTs = 0;
+let currentRound = 1;
+
+function getScore(roundNum, courtIdx) {
+  const key = `${roundNum}_${courtIdx}`;
+  return scores[key] || [0, 0];
+}
+
+async function adjustScore(roundNum, courtIdx, teamIdx, delta) {
+  try { const res = await fetch('/api/tennis/scores'); const data = await res.json(); scores = data.scores || {}; } catch(e) {}
+  const key = `${roundNum}_${courtIdx}`;
+  const s = scores[key] || [0, 0];
+  s[teamIdx] = Math.max(0, s[teamIdx] + delta);
+  scores[key] = s;
+  try { const res = await fetch('/api/tennis/scores', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key, scores:s}) }); const data = await res.json(); lastTs = data.ts; document.getElementById('syncDot').className='sync-dot ok'; } catch(e) { document.getElementById('syncDot').className='sync-dot err'; }
+  render();
+}
+
+function getCurrentRound() {
+  if (ROUNDS.length === 0) return 1;
+  const now = new Date();
+  const t = now.getHours() * 60 + now.getMinutes();
+  for (let i = ROUNDS.length - 1; i >= 0; i--) {
+    const [fromStr] = ROUNDS[i].time.split('~');
+    const [h, m] = fromStr.split(':').map(Number);
+    if (t >= h * 60 + m) return i + 1;
+  }
+  return 1;
+}
+
+function render() {
+  if (ROUNDS.length === 0) return;
+  currentRound = getCurrentRound();
+
+  const nextDiv = document.getElementById('next-up');
+  if (currentRound <= ROUNDS.length) {
+    const r = ROUNDS[currentRound - 1];
+    const nextR = currentRound < ROUNDS.length ? ROUNDS[currentRound] : null;
+    nextDiv.innerHTML = `<div class="next-up"><div class="next-up-title">🏃 지금 진행 중: ${r.num}라운드 (${r.time})</div><div class="next-up-info">${r.courts.map((c,i)=>`코트${i+1} ${TYPE_EMOJI[c.type]} ${c.team1.join('&')} vs ${c.team2.join('&')}`).join('<br>')}${nextR?`<br>⏭️ <b>다음:</b> ${nextR.courts.map(c=>c.team1.join('&')+' vs '+c.team2.join('&')).join(' / ')}`:''}</div></div>`;
+  } else {
+    nextDiv.innerHTML = '<div class="next-up"><div class="next-up-title">🏆 오늘 경기 종료!</div></div>';
+  }
+
+  const roundsDiv = document.getElementById('rounds');
+  let html = '';
+  for (const r of ROUNDS) {
+    const isActive = r.num === currentRound;
+    const isCompleted = r.num < currentRound;
+    const cls = isActive ? 'active' : (isCompleted ? 'completed' : '');
+    html += `<div class="round-card ${cls}"><div class="round-header"><div>${r.num}라운드 ${isActive?'<span class="current-badge">NOW</span>':''}</div><div class="round-time">${r.time}</div></div>`;
+    for (let ci = 0; ci < r.courts.length; ci++) {
+      const c = r.courts[ci]; const s = getScore(r.num, ci);
+      html += `<div class="court"><div class="court-label">🏟️ 코트${ci+1} · <span class="court-type ${TYPE_CLASS[c.type]}">${c.type}</span></div><div class="match-row"><div class="team ${s[0]>s[1]&&(s[0]>0||s[1]>0)?'winner':''}"><div class="team-emoji">${c.team1.map(n=>EMOJIS[n]||'🎾').join('')}</div><div class="team-names">${c.team1.join(' & ')}</div></div><div class="vs">VS</div><div class="team ${s[1]>s[0]&&(s[0]>0||s[1]>0)?'winner':''}"><div class="team-emoji">${c.team2.map(n=>EMOJIS[n]||'🎾').join('')}</div><div class="team-names">${c.team2.join(' & ')}</div></div></div><div class="score-area"><button class="score-btn minus" onclick="adjustScore(${r.num},${ci},0,-1)">−</button><button class="score-btn plus" onclick="adjustScore(${r.num},${ci},0,1)">+</button><div class="score-display">${s[0]} : ${s[1]}</div><button class="score-btn minus" onclick="adjustScore(${r.num},${ci},1,-1)">−</button><button class="score-btn plus" onclick="adjustScore(${r.num},${ci},1,1)">+</button></div></div>`;
+    }
+    html += `<div class="rest-area">☕ 쉬는 중: <span>${r.rest.map(n=>(EMOJIS[n]||'')+n).join(', ')}</span></div></div>`;
+  }
+  roundsDiv.innerHTML = html;
+  renderSummary();
+}
+
+let userScrolled = false;
+document.addEventListener('scroll', () => { userScrolled = true; }, { once: true });
+
+let confettiShown = false;
+
+function calcStats() {
+  const wins = {}, gamePts = {};
+  const allPlayers = Object.keys(EMOJIS);
+  allPlayers.forEach(p => { wins[p]=0; gamePts[p]=0; });
+  let completedMatches = 0;
+  const totalMatches = ROUNDS.reduce((sum,r)=>sum+r.courts.length, 0);
+  for (const r of ROUNDS) {
+    for (let ci = 0; ci < r.courts.length; ci++) {
+      const s = getScore(r.num, ci);
+      if (s[0]===0 && s[1]===0) continue;
+      completedMatches++;
+      const c = r.courts[ci];
+      c.team1.forEach(p => gamePts[p]=(gamePts[p]||0)+s[0]);
+      c.team2.forEach(p => gamePts[p]=(gamePts[p]||0)+s[1]);
+      if (s[0]>s[1]) c.team1.forEach(p => wins[p]=(wins[p]||0)+1);
+      else if (s[1]>s[0]) c.team2.forEach(p => wins[p]=(wins[p]||0)+1);
+    }
+  }
+  return { wins, gamePts, completedMatches, totalMatches, allPlayers };
+}
+
+function renderSummary() {
+  const { wins, gamePts, completedMatches, totalMatches, allPlayers } = calcStats();
+  const isComplete = completedMatches === totalMatches && totalMatches > 0;
+  const sorted = [...allPlayers].sort((a,b) => { if((wins[b]||0)!==(wins[a]||0)) return (wins[b]||0)-(wins[a]||0); return (gamePts[b]||0)-(gamePts[a]||0); });
+  const summaryDiv = document.getElementById('summary');
+  const championDiv = document.getElementById('champion');
+
+  if (isComplete && completedMatches > 0) {
+    const ch = sorted[0], s2 = sorted[1], s3 = sorted[2];
+    championDiv.innerHTML = `<div class="champion-banner"><div class="crown">👑🏆👑</div><div class="champion-name">${EMOJIS[ch]||''} ${ch}</div><div class="champion-score">${wins[ch]}승 · ${gamePts[ch]}득점으로 오늘의 MVP!</div><div class="podium"><div class="podium-item silver"><div class="medal">🥈</div><div class="p-name">${EMOJIS[s2]||''} ${s2}</div><div class="p-wins">${wins[s2]}승 ${gamePts[s2]}점</div></div><div class="podium-item gold"><div class="medal">🥇</div><div class="p-name">${EMOJIS[ch]||''} ${ch}</div><div class="p-wins">${wins[ch]}승 ${gamePts[ch]}점</div></div><div class="podium-item bronze"><div class="medal">🥉</div><div class="p-name">${EMOJIS[s3]||''} ${s3}</div><div class="p-wins">${wins[s3]}승 ${gamePts[s3]}점</div></div></div></div>`;
+    if (!confettiShown) { confettiShown = true; launchConfetti(); }
+  } else { championDiv.innerHTML = ''; confettiShown = false; }
+
+  const pct = totalMatches > 0 ? Math.round((completedMatches/totalMatches)*100) : 0;
+  summaryDiv.innerHTML = `<div class="summary"><h3>🏆 ${isComplete?'최종 순위':'승리 현황'} <span style="font-size:0.8em;color:#888">(${completedMatches}/${totalMatches} 경기)</span></h3><div style="background:#e0e0e0;border-radius:8px;height:6px;margin-bottom:10px;overflow:hidden"><div style="background:linear-gradient(90deg,#43a047,#66bb6a);height:100%;width:${pct}%;transition:width 0.5s;border-radius:8px"></div></div><div class="summary-grid">${sorted.map((p,i)=>{const rc=isComplete?(i===0?'rank-1':i===1?'rank-2':i===2?'rank-3':''):'';const md=isComplete?(i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}.`):'';return `<div class="summary-item ${rc}"><span>${isComplete?md:(EMOJIS[p]||'🎾')} ${EMOJIS[p]||''} ${p}</span><span><b>${wins[p]||0}</b>승 <span style="color:#999;font-size:0.85em">${gamePts[p]||0}점</span></span></div>`;}).join('')}</div></div>`;
+}
+
+function launchConfetti() {
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  document.body.appendChild(container);
+  const colors = ['#ffd600','#ff5252','#448aff','#69f0ae','#ff6d00','#e040fb','#00e5ff'];
+  for (let i = 0; i < 80; i++) {
+    const c = document.createElement('div'); c.className = 'confetti';
+    c.style.left = Math.random()*100+'%';
+    c.style.background = colors[Math.floor(Math.random()*colors.length)];
+    c.style.width = (Math.random()*8+5)+'px'; c.style.height = (Math.random()*8+5)+'px';
+    c.style.borderRadius = Math.random()>0.5?'50%':'2px';
+    c.style.animationDuration = (Math.random()*2+2)+'s';
+    c.style.animationDelay = (Math.random()*2)+'s';
+    container.appendChild(c);
+  }
+  setTimeout(() => container.remove(), 5000);
+}
+
+let _bracketTs = 0;
+
+async function pollAll() {
+  try {
+    // 1. Poll scores
+    const scRes = await fetch('/api/tennis/scores');
+    const scData = await scRes.json();
+    if (scData.ts > lastTs) {
+      scores = scData.scores || {};
+      lastTs = scData.ts;
+      render();
+    }
+
+    // 2. Poll bracket (다른 기기에서 확정했을 수 있음)
+    const brRes = await fetch('/api/tennis/bracket');
+    const brData = await brRes.json();
+    if (brData.ts > _bracketTs && brData.rounds && brData.rounds.length > 0) {
+      _bracketTs = brData.ts;
+      ROUNDS.length = 0;
+      brData.rounds.forEach(r => ROUNDS.push(r));
+      Object.keys(EMOJIS).forEach(k => delete EMOJIS[k]);
+      Object.assign(EMOJIS, brData.emojis || {});
+
+      // Update date display
+      if (ROUNDS.length > 0) {
+        const now = new Date();
+        const dow = ['일','월','화','수','목','금','토'][now.getDay()];
+        const firstR = ROUNDS[0], lastR = ROUNDS[ROUNDS.length-1];
+        document.getElementById('sb-date').textContent =
+          `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 (${dow}) · ${firstR.time.split('~')[0]}~${lastR.time.split('~')[1]}`;
+      }
+      render();
+    }
+
+    // 3. Poll players (대진표 생성 탭이 활성 상태일 때만)
+    if (document.getElementById('view-generator').classList.contains('active')) {
+      await loadPlayersFromServer();
+    }
+
+    document.getElementById('syncDot').className = 'sync-dot ok';
+    document.getElementById('syncText').textContent = '실시간 동기화 중';
+  } catch(e) {
+    document.getElementById('syncDot').className = 'sync-dot err';
+    document.getElementById('syncText').textContent = '연결 끊김';
+  }
+}
+
+/* ═══════════════════════════════════════════
+   INIT: Load from server
+   ═══════════════════════════════════════════ */
+(async () => {
+  // 1. Load bracket from server
+  try {
+    const brRes = await fetch('/api/tennis/bracket');
+    const brData = await brRes.json();
+    if (brData.rounds && brData.rounds.length > 0) {
+      brData.rounds.forEach(r => ROUNDS.push(r));
+      Object.assign(EMOJIS, brData.emojis || {});
+      _bracketTs = brData.ts || 0;
+    }
+  } catch(e) {}
+
+  // 2. Load scores from server
+  try {
+    const scRes = await fetch('/api/tennis/scores');
+    const scData = await scRes.json();
+    scores = scData.scores || {};
+    lastTs = scData.ts || 0;
+  } catch(e) {}
+
+  // 3. Load players from server (or init with empty rows)
+  const loaded = await loadPlayersFromServer();
+  if (!loaded) {
+    for (let i = 0; i < 4; i++) addPlayerRow();
+  }
+
+  // 4. Setup auto-sync for player edits
+  setupPlayerAutoSync();
+
+  // 5. If we have rounds, show scoreboard
+  if (ROUNDS.length > 0) {
+    const now = new Date();
+    const dow = ['일','월','화','수','목','금','토'][now.getDay()];
+    const firstR = ROUNDS[0], lastR = ROUNDS[ROUNDS.length-1];
+    document.getElementById('sb-date').textContent =
+      `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 (${dow}) · ${firstR.time.split('~')[0]}~${lastR.time.split('~')[1]}`;
+    switchTab('scoreboard');
+  }
+
+  render();
+  setInterval(pollAll, 2000);
+  setInterval(() => { const nr = getCurrentRound(); if (nr !== currentRound) render(); }, 30000);
+})();
+</script>
+</body>
+</html>
