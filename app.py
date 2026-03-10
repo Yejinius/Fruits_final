@@ -1655,10 +1655,9 @@ def _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=False
     wish_section = wish
     if relaxed:
         wish_section = (
-            f"아래 희망사항을 가능한 범위에서만 반영해줘. "
-            f"핵심 규칙(균등배분, 3연속금지, 혼복우선)이 더 중요하고, "
-            f"희망사항이 불가능하면 부분적으로만 반영하거나 포기해도 돼. "
-            f"완벽하지 않아도 괜찮아.\n{wish}"
+            f"가능하면 아래 희망사항을 반영하되, 완벽하게 반영할 필요 없고 "
+            f"부분적으로만 되어도 괜찮음. 핵심 규칙(균등배분, 3연속금지, 혼복우선)이 "
+            f"희망사항보다 우선. 불가능한 조건에 시간 쓰지 말고 빠르게 결과 내줘.\n{wish}"
         )
 
     return (
@@ -1744,14 +1743,52 @@ def _save_bracket_result(rounds, players):
     return emojis
 
 
+def _calc_difficulty(players, num_courts, num_rounds, wish):
+    """경우의 수 추정 및 난이도 계산."""
+    import math
+    n = len(players)
+    per_round = num_courts * 4  # 라운드당 경기 인원
+
+    # 라운드당 경기 조합: C(n, per_round) × 팀 배분 경우의 수
+    try:
+        round_combos = math.comb(n, per_round)
+        # 8명을 2코트에 배분 (4+4, 각 코트 내 2+2 팀)
+        court_combos = math.comb(per_round, 4) * math.comb(4, 2) * math.comb(4, 2)
+        single_round = round_combos * court_combos
+        total = single_round ** num_rounds
+    except Exception:
+        total = 10 ** 20  # fallback
+
+    # 난이도 등급
+    log_total = math.log10(total) if total > 0 else 0
+    if log_total > 40:
+        pct = 1
+    elif log_total > 30:
+        pct = 5
+    elif log_total > 20:
+        pct = 15
+    elif log_total > 10:
+        pct = 30
+    else:
+        pct = 50
+
+    # 희망사항이 있으면 난이도 상승
+    if wish and len(wish) > 10:
+        pct = max(1, pct - 5)
+
+    return total, pct
+
+
 def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish):
-    """백그라운드 2단계 생성: 1차 원본 → 실패 시 2차 완화 프롬프트."""
-    ATTEMPT_TIMEOUT = 300  # 5분
+    """백그라운드 2단계 생성: 1차(5분) → 실패 시 2차(10분) 완화 프롬프트."""
+    ATTEMPT1_TIMEOUT = 300   # 5분
+    ATTEMPT2_TIMEOUT = 600   # 10분
+    num_rounds = len(time_slots)
 
     # ── 1차 시도: 희망사항 원본 그대로 ──
     _set_gen_status("generating", attempt=1, message="AI가 희망사항을 반영하여 대진표를 생성하고 있습니다...")
     prompt1 = _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=False)
-    rounds, err = _call_claude(prompt1, timeout_sec=ATTEMPT_TIMEOUT, model="sonnet")
+    rounds, err = _call_claude(prompt1, timeout_sec=ATTEMPT1_TIMEOUT, model="sonnet")
 
     if rounds:
         emojis = _save_bracket_result(rounds, players)
@@ -1760,26 +1797,42 @@ def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish
 
     # ── 1차 실패 → 2차 시도 안내 ──
     if err == "timeout":
-        retry_reason = "희망사항이 복잡하여 5분 내에 완료되지 못했습니다"
+        retry_reason = "희망사항을 완벽히 반영하기엔 5분이 부족했습니다"
     else:
         retry_reason = err
 
     _set_gen_status("generating", attempt=2,
                     message=f"⚠️ 1차 시도 실패: {retry_reason}\n"
-                            f"핵심 규칙을 우선하고 희망사항을 유연하게 적용하여 재시도 중...")
+                            f"희망사항을 유연하게 적용하여 재시도 중... (최대 10분)")
 
     # ── 2차 시도: 완화된 프롬프트 ──
     prompt2 = _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=True)
-    rounds2, err2 = _call_claude(prompt2, timeout_sec=ATTEMPT_TIMEOUT, model="sonnet")
+    rounds2, err2 = _call_claude(prompt2, timeout_sec=ATTEMPT2_TIMEOUT, model="sonnet")
 
     if rounds2:
         emojis = _save_bracket_result(rounds2, players)
         _set_gen_status("done", rounds=rounds2, emojis=emojis, attempt=2,
-                        note="희망사항을 유연하게 적용한 결과입니다")
+                        note="희망사항을 가능한 범위에서 반영한 결과입니다")
         return
 
-    # ── 2차도 실패 ──
-    final_err = f"2차 시도도 실패: {err2}" if err2 != "timeout" else "2차 시도도 시간 초과 (각 5분)"
+    # ── 2차도 실패: 난이도 통계 포함 ──
+    total_combos, difficulty_pct = _calc_difficulty(players, num_courts, num_rounds, wish)
+
+    # 읽기 좋은 숫자 포맷
+    import math
+    if total_combos > 10**15:
+        combos_str = f"약 10^{int(math.log10(total_combos))}개"
+    elif total_combos > 1_000_000:
+        combos_str = f"약 {total_combos:,.0f}개"
+    else:
+        combos_str = f"{total_combos:,}개"
+
+    final_err = (
+        f"2차 시도까지 실패했습니다 😢\n\n"
+        f"📊 이 대진표의 가능한 경우의 수: {combos_str}\n"
+        f"🏆 난이도: 상위 {difficulty_pct}%\n\n"
+        f"💡 로컬 알고리즘으로 생성하거나, 희망사항을 조금 단순화해보세요."
+    )
     _set_gen_status("error", error=final_err)
 
 
