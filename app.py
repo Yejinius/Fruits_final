@@ -1697,10 +1697,22 @@ def tennis_generate():
 ```"""
 
     try:
+        _claude_bin = "/opt/homebrew/bin/claude"
+        _env = {**_os.environ, "TERM": "dumb"}
+        # dotenv로 로드된 토큰이 os.environ에 없을 수 있으므로 .env에서 직접 읽기
+        if "CLAUDE_CODE_OAUTH_TOKEN" not in _env:
+            try:
+                with open(_os.path.join(str(BASE_DIR), ".env")) as _ef:
+                    for _line in _ef:
+                        if _line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                            _env["CLAUDE_CODE_OAUTH_TOKEN"] = _line.split("=", 1)[1].strip()
+            except Exception:
+                pass
+
         result = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text"],
+            [_claude_bin, "-p", prompt, "--output-format", "text"],
             capture_output=True, text=True, timeout=120,
-            env={**_os.environ, "TERM": "dumb"},
+            env=_env,
         )
 
         if result.returncode != 0:
