@@ -1699,6 +1699,8 @@ def tennis_generate():
     try:
         _claude_bin = "/opt/homebrew/bin/claude"
         _env = {**_os.environ, "TERM": "dumb"}
+        # gunicorn PATH에 homebrew가 없으므로 추가
+        _env["PATH"] = "/opt/homebrew/bin:" + _env.get("PATH", "/usr/bin:/bin")
         # dotenv로 로드된 토큰이 os.environ에 없을 수 있으므로 .env에서 직접 읽기
         if "CLAUDE_CODE_OAUTH_TOKEN" not in _env:
             try:
