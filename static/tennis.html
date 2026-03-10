@@ -273,10 +273,11 @@ body {
 
   <div class="gen-card">
     <h3>💬 희망사항</h3>
-    <textarea class="wish-textarea" id="set-wish" placeholder="예: 가능하면 여복을 최소 2경기 9시 전으로 배치해줘"></textarea>
+    <textarea class="wish-textarea" id="set-wish" placeholder="예: 가능하면 여복을 최소 2경기 9시 전으로 배치해줘" maxlength="50" oninput="updateWishCount()"></textarea>
+    <div id="wish-count" style="text-align:right;font-size:0.75em;color:#999;margin-top:4px">0/50</div>
   </div>
 
-  <button class="gen-btn primary" onclick="generateBracket()">🎾 대진표 생성</button>
+  <button class="gen-btn primary" id="gen-main-btn" onclick="generateBracket()">🎾 대진표 생성</button>
 
   <div id="preview-area"></div>
 </div>
@@ -386,7 +387,26 @@ function loadPreset() {
 /* ═══════════════════════════════════════════
    BRACKET GENERATION ALGORITHM
    ═══════════════════════════════════════════ */
+function updateWishCount() {
+  const el = document.getElementById('set-wish');
+  const cnt = document.getElementById('wish-count');
+  if (el && cnt) cnt.textContent = `${el.value.length}/50`;
+}
+
+let _generating = false;
+
+function setGenerating(on) {
+  _generating = on;
+  const btn = document.getElementById('gen-main-btn');
+  if (btn) {
+    btn.disabled = on;
+    btn.textContent = on ? '⏳ 생성 중...' : '🎾 대진표 생성';
+    btn.style.opacity = on ? '0.6' : '1';
+  }
+}
+
 function generateBracket() {
+  if (_generating) return;
   const players = getPlayers();
   if (players.length < 4) { alert('최소 4명을 입력해주세요!'); return; }
 
@@ -545,6 +565,7 @@ function generateBracket() {
     }
   });
 
+  setGenerating(false);
   showPreview(finalRounds, games, typeCounts, maxConsec, players, wish, startTime, warmup, duration);
 }
 
@@ -555,6 +576,7 @@ function generateBracket() {
    AI-POWERED BRACKET GENERATION (via Claude API)
    ═══════════════════════════════════════════ */
 async function generateWithAI(players, numCourts, duration, startTime, endTime, warmup, wish) {
+  setGenerating(true);
   const area = document.getElementById('preview-area');
   area.innerHTML = `<div class="gen-card" style="text-align:center;padding:40px">
     <div style="font-size:2em;animation:bounce 1s infinite">🤖</div>
@@ -600,8 +622,10 @@ async function generateWithAI(players, numCourts, duration, startTime, endTime, 
     });
 
     showPreview(genRounds, games, typeCounts, maxConsec, players, wish, startTime, warmup, duration);
+    setGenerating(false);
 
   } catch(e) {
+    setGenerating(false);
     area.innerHTML = `<div class="gen-card" style="text-align:center;padding:30px">
       <div style="font-size:1.5em">⚠️</div>
       <div style="margin-top:8px;color:#c62828;font-weight:600">AI 생성 실패</div>

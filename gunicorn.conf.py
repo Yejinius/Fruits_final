@@ -4,7 +4,7 @@ import os
 bind = f"{os.getenv('FLASK_HOST', '127.0.0.1')}:{os.getenv('FLASK_PORT', '5000')}"
 workers = 2
 threads = 4
-timeout = 120
+timeout = 960  # 16분 (Claude CLI 최대 15분 + 여유)
 accesslog = "-"
 errorlog = "-"
 loglevel = "info"

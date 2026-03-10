@@ -1634,6 +1634,8 @@ def tennis_generate():
         return jsonify({"ok": False, "error": "최소 4명 필요"}), 400
     if not wish:
         return jsonify({"ok": False, "error": "희망사항이 없으면 로컬 생성 사용"}), 400
+    if len(wish) > 50:
+        return jsonify({"ok": False, "error": "희망사항은 50자 이내로 입력해주세요"}), 400
 
     # 시간 슬롯 계산
     sh, sm = map(int, start_time.split(':'))
@@ -1713,7 +1715,7 @@ def tennis_generate():
 
         result = subprocess.run(
             [_claude_bin, "-p", prompt, "--output-format", "text"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=900,  # 15분
             env=_env,
         )
 
@@ -1743,7 +1745,7 @@ def tennis_generate():
         return jsonify({"ok": True, "rounds": rounds})
 
     except subprocess.TimeoutExpired:
-        return jsonify({"ok": False, "error": "AI 생성 시간 초과 (2분)"}), 500
+        return jsonify({"ok": False, "error": "AI 생성 시간 초과 (15분)"}), 500
     except json.JSONDecodeError as e:
         return jsonify({"ok": False, "error": f"JSON 파싱 실패: {str(e)[:100]}"}), 500
     except FileNotFoundError:
