@@ -822,18 +822,21 @@ class OS79Crawler:
                 mins, secs = divmod(int(avg_dur), 60)
                 analytics_lines.append(f"⏱️ 평균 체류: {mins}분 {secs}초 (2페이지 이상 {len(session_durations)}명)")
 
-            # 유입 경로
-            referrer_stats = pv_session.query(
+            # 유입 경로 (도메인별 합산)
+            all_referrers = pv_session.query(
                 PageView.referrer, func.count(PageView.id)
             ).filter(
                 *today_filter,
                 PageView.referrer != None,
-            ).group_by(PageView.referrer).order_by(func.count(PageView.id).desc()).limit(10).all()
-            if referrer_stats:
+            ).group_by(PageView.referrer).all()
+            domain_counts = {}
+            for ref, cnt in all_referrers:
+                domain = urlparse(ref).hostname or ref[:30]
+                domain_counts[domain] = domain_counts.get(domain, 0) + cnt
+            if domain_counts:
                 analytics_lines.append("🔗 유입 경로:")
-                for ref, cnt in referrer_stats:
-                    label = urlparse(ref).hostname or ref[:30]
-                    analytics_lines.append(f"  {cnt}회 — {label}")
+                for domain, cnt in sorted(domain_counts.items(), key=lambda x: -x[1])[:10]:
+                    analytics_lines.append(f"  {cnt}회 — {domain}")
             # 직접 유입 (referrer 없음) 수
             direct_count = pv_session.query(func.count(PageView.id)).filter(
                 *today_filter,
