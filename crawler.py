@@ -786,34 +786,45 @@ class OS79Crawler:
             today_start = datetime.combine(datetime.now().date(), datetime.min.time())
             tomorrow_start = today_start + timedelta(days=1)
             today_filter = [PageView.created_at >= today_start, PageView.created_at < tomorrow_start]
+            human_filter = today_filter + [PageView.is_bot == False]
             pv_session = get_session()
 
-            # 기본 지표
+            # 봇 통계
+            bot_sessions = pv_session.query(func.count(func.distinct(PageView.session_id))).filter(
+                *today_filter, PageView.is_bot == True
+            ).scalar() or 0
+            bot_views = pv_session.query(func.count(PageView.id)).filter(
+                *today_filter, PageView.is_bot == True
+            ).scalar() or 0
+
+            # 기본 지표 (봇 제외)
             daily_visitors = pv_session.query(func.count(func.distinct(PageView.session_id))).filter(
-                *today_filter
+                *human_filter
             ).scalar() or 0
             daily_views = pv_session.query(func.count(PageView.id)).filter(
-                *today_filter
+                *human_filter
             ).scalar() or 0
 
             analytics_lines.append(f"\n📊 <b>오늘 방문 분석</b>")
             analytics_lines.append(f"👤 방문자: {daily_visitors}명 / 페이지뷰: {daily_views}회")
+            if bot_sessions:
+                analytics_lines.append(f"🤖 봇 {bot_sessions}개 제외 ({bot_views}회)")
 
-            # 디바이스 비율
+            # 디바이스 비율 (봇 제외)
             mobile_count = pv_session.query(func.count(PageView.id)).filter(
-                *today_filter, PageView.is_mobile == True
+                *human_filter, PageView.is_mobile == True
             ).scalar() or 0
             pc_count = daily_views - mobile_count
             if daily_views > 0:
                 mobile_pct = mobile_count * 100 // daily_views
                 analytics_lines.append(f"📱 모바일: {mobile_count}회({mobile_pct}%) / 💻 PC: {pc_count}회({100-mobile_pct}%)")
 
-            # 체류 시간 (세션별 첫/마지막 방문 차이 평균)
+            # 체류 시간 (봇 제외)
             session_durations = pv_session.query(
                 (func.strftime('%s', func.max(PageView.created_at)) -
                  func.strftime('%s', func.min(PageView.created_at))).label("dur")
             ).filter(
-                *today_filter
+                *human_filter
             ).group_by(PageView.session_id).having(
                 func.count(PageView.id) > 1
             ).all()
@@ -822,18 +833,17 @@ class OS79Crawler:
                 mins, secs = divmod(int(avg_dur), 60)
                 analytics_lines.append(f"⏱️ 평균 체류: {mins}분 {secs}초 (2페이지 이상 {len(session_durations)}명)")
 
-            # 유입 경로 (도메인 + 경로 세그먼트별 합산)
+            # 유입 경로 (봇 제외, 도메인 + 경로 세그먼트별 합산)
             all_referrers = pv_session.query(
                 PageView.referrer, func.count(PageView.id)
             ).filter(
-                *today_filter,
+                *human_filter,
                 PageView.referrer != None,
             ).group_by(PageView.referrer).all()
             route_counts = {}
             for ref, cnt in all_referrers:
                 parsed = urlparse(ref)
                 host = parsed.hostname or ref[:30]
-                # 경로 첫 세그먼트 추출 (product, category, search 등)
                 parts = [p for p in (parsed.path or "").split("/") if p]
                 segment = f"/{parts[0]}" if parts else ""
                 key = f"{host}{segment}"
@@ -842,20 +852,20 @@ class OS79Crawler:
                 analytics_lines.append("🔗 유입 경로:")
                 for route, cnt in sorted(route_counts.items(), key=lambda x: -x[1])[:10]:
                     analytics_lines.append(f"  {cnt}회 — {route}")
-            # 직접 유입 (referrer 없음) 수
+            # 직접 유입 (봇 제외)
             direct_count = pv_session.query(func.count(PageView.id)).filter(
-                *today_filter,
+                *human_filter,
                 PageView.referrer == None,
             ).scalar() or 0
             if direct_count:
                 analytics_lines.append(f"  {direct_count}회 — 직접 접속")
 
-            # 인기 상품 TOP5
+            # 인기 상품 TOP5 (봇 제외)
             top_products = pv_session.query(
                 PageView.article_idx, func.count(PageView.id).label("cnt")
             ).filter(
                 PageView.article_idx != None,
-                *today_filter,
+                *human_filter,
             ).group_by(PageView.article_idx).order_by(func.count(PageView.id).desc()).limit(5).all()
             if top_products:
                 art_ids = [a for a, _ in top_products]

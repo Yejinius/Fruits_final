@@ -26,6 +26,12 @@ import threading
 _SKIP_PREFIXES = ("/api/", "/data-images/", "/static/", "/favicon")
 _PRODUCT_RE = re.compile(r"^/product/(\d+)")
 _MOBILE_RE = re.compile(r"Mobile|Android|iPhone", re.I)
+_BOT_RE = re.compile(
+    r"bot|crawl|spider|scraper|scanner|censys|semrush|ahrefs|"
+    r"facebookexternalhit|kakaotalk-scrap|curl/|wget/|python-requests|"
+    r"headlesschrome|phantomjs|xbox",
+    re.I
+)
 
 
 @app.after_request
@@ -48,9 +54,10 @@ def track_page_view(response):
     m = _PRODUCT_RE.match(path)
     article_idx = int(m.group(1)) if m else None
 
-    # 모바일 판별
+    # 모바일/봇 판별
     ua = request.headers.get("User-Agent", "")
     is_mobile = bool(_MOBILE_RE.search(ua))
+    is_bot = bool(_BOT_RE.search(ua))
 
     # IP 익명화
     ip = request.remote_addr or ""
@@ -65,7 +72,7 @@ def track_page_view(response):
             s.add(PageView(
                 session_id=vid, path=path, article_idx=article_idx,
                 referrer=referrer, user_agent=ua[:500],
-                is_mobile=is_mobile, ip_hash=ip_hash,
+                is_mobile=is_mobile, ip_hash=ip_hash, is_bot=is_bot,
             ))
             s.commit()
             s.close()

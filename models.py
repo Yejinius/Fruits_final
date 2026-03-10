@@ -215,6 +215,7 @@ class PageView(Base):
     user_agent = Column(String(500))                   # User-Agent
     is_mobile = Column(Boolean, default=False)         # 모바일 여부
     ip_hash = Column(String(16))                       # IP SHA256 앞 16자 (익명화)
+    is_bot = Column(Boolean, default=False)             # 봇 여부
     created_at = Column(DateTime, default=datetime.now, index=True)
 
     def __repr__(self):
@@ -234,6 +235,7 @@ def init_db():
     migrations = [
         ("orders", "oos_notified_at DATETIME"),
         ("products", "band_skipped BOOLEAN DEFAULT 0"),
+        ("page_views", "is_bot BOOLEAN DEFAULT 0"),
     ]
     for table, col in migrations:
         try:
