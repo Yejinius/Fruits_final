@@ -575,15 +575,79 @@ function generateBracket() {
 /* ═══════════════════════════════════════════
    AI-POWERED BRACKET GENERATION (via Claude API)
    ═══════════════════════════════════════════ */
-async function generateWithAI(players, numCourts, duration, startTime, endTime, warmup, wish) {
-  setGenerating(true);
+let _genPollTimer = null;
+
+function showGeneratingUI(msg) {
   const area = document.getElementById('preview-area');
   area.innerHTML = `<div class="gen-card" style="text-align:center;padding:40px">
     <div style="font-size:2em;animation:bounce 1s infinite">🤖</div>
-    <div style="margin-top:10px;color:#555">AI가 희망사항을 반영하여 대진표를 생성하고 있습니다...</div>
-    <div style="margin-top:6px;font-size:0.8em;color:#999">약 5분 소요</div>
+    <div style="margin-top:10px;color:#555">${msg || 'AI가 희망사항을 반영하여 대진표를 생성하고 있습니다...'}</div>
+    <div id="gen-elapsed" style="margin-top:6px;font-size:0.8em;color:#999">약 5분 소요</div>
   </div>`;
   area.scrollIntoView({ behavior: 'smooth' });
+}
+
+function showGenError(errMsg) {
+  const area = document.getElementById('preview-area');
+  area.innerHTML = `<div class="gen-card" style="text-align:center;padding:30px">
+    <div style="font-size:1.5em">⚠️</div>
+    <div style="margin-top:8px;color:#c62828;font-weight:600">AI 생성 실패</div>
+    <div style="margin-top:6px;font-size:0.85em;color:#555">${errMsg}</div>
+    <button class="gen-btn secondary" onclick="generateBracketLocal()" style="margin-top:12px">🔄 로컬 알고리즘으로 대신 생성</button>
+  </div>`;
+}
+
+function startGenPolling(players) {
+  if (_genPollTimer) clearInterval(_genPollTimer);
+  const startMs = Date.now();
+
+  _genPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/tennis/gen-status');
+      const status = await res.json();
+
+      if (status.state === 'done') {
+        clearInterval(_genPollTimer);
+        _genPollTimer = null;
+        setGenerating(false);
+
+        // 대진표가 서버에 저장되었으므로 bracket polling이 자동 감지
+        // 스코어보드 탭으로 전환
+        switchTab('scoreboard');
+        await loadBracket();
+        return;
+      }
+
+      if (status.state === 'error') {
+        clearInterval(_genPollTimer);
+        _genPollTimer = null;
+        setGenerating(false);
+        showGenError(status.error || '알 수 없는 오류');
+        return;
+      }
+
+      if (status.state === 'idle') {
+        clearInterval(_genPollTimer);
+        _genPollTimer = null;
+        setGenerating(false);
+        return;
+      }
+
+      // 경과 시간 표시
+      const el = document.getElementById('gen-elapsed');
+      if (el) {
+        const sec = Math.floor((Date.now() - startMs) / 1000);
+        const min = Math.floor(sec / 60);
+        const s = sec % 60;
+        el.textContent = min > 0 ? `경과 ${min}분 ${s}초` : `경과 ${s}초`;
+      }
+    } catch(e) { /* polling 실패는 무시, 다음에 재시도 */ }
+  }, 2000);
+}
+
+async function generateWithAI(players, numCourts, duration, startTime, endTime, warmup, wish) {
+  setGenerating(true);
+  showGeneratingUI();
 
   try {
     const res = await fetch('/api/tennis/generate', {
@@ -592,46 +656,27 @@ async function generateWithAI(players, numCourts, duration, startTime, endTime, 
       body: JSON.stringify({ players, numCourts, duration, startTime, endTime, warmup, wish })
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `서버 오류 (${res.status})`);
+    const data = await res.json().catch(() => ({}));
+
+    if (res.status === 409) {
+      // 다른 사람이 생성 중
+      showGeneratingUI(data.error || '다른 분이 대진표를 생성 중이에요. 결과를 함께 기다려봐요! 🎾');
+      startGenPolling(players);
+      return;
     }
 
-    const data = await res.json();
-    if (!data.ok || !data.rounds) throw new Error(data.error || '대진표 생성 실패');
+    if (!res.ok) {
+      setGenerating(false);
+      showGenError(data.error || `서버 오류 (${res.status})`);
+      return;
+    }
 
-    // Calculate stats from AI response
-    const genRounds = data.rounds;
-    const games = {};
-    players.forEach(p => games[p.name] = 0);
-    genRounds.forEach(r => r.courts.forEach(c => {
-      [...c.team1, ...c.team2].forEach(n => games[n] = (games[n]||0) + 1);
-    }));
-
-    const typeCounts = { '혼복': 0, '여복': 0, '남복': 0 };
-    genRounds.forEach(r => r.courts.forEach(c => typeCounts[c.type] = (typeCounts[c.type]||0) + 1));
-
-    let maxConsec = 0;
-    players.forEach(p => {
-      let consec = 0;
-      for (let i = 0; i < genRounds.length; i++) {
-        const inRound = genRounds[i].courts.some(c => c.team1.includes(p.name) || c.team2.includes(p.name));
-        consec = inRound ? consec + 1 : 0;
-        maxConsec = Math.max(maxConsec, consec);
-      }
-    });
-
-    showPreview(genRounds, games, typeCounts, maxConsec, players, wish, startTime, warmup, duration);
-    setGenerating(false);
+    // 202 Accepted — 백그라운드 실행 시작됨, polling 시작
+    startGenPolling(players);
 
   } catch(e) {
     setGenerating(false);
-    area.innerHTML = `<div class="gen-card" style="text-align:center;padding:30px">
-      <div style="font-size:1.5em">⚠️</div>
-      <div style="margin-top:8px;color:#c62828;font-weight:600">AI 생성 실패</div>
-      <div style="margin-top:6px;font-size:0.85em;color:#555">${e.message}</div>
-      <button class="gen-btn secondary" onclick="generateBracketLocal()" style="margin-top:12px">🔄 로컬 알고리즘으로 대신 생성</button>
-    </div>`;
+    showGenError(e.message);
   }
 }
 
@@ -1005,7 +1050,18 @@ async function pollAll() {
   // 4. Setup auto-sync for player edits
   setupPlayerAutoSync();
 
-  // 5. If we have rounds, show scoreboard
+  // 5. Check if AI generation is in progress (다른 기기에서 시작됐을 수 있음)
+  try {
+    const gsRes = await fetch('/api/tennis/gen-status');
+    const gs = await gsRes.json();
+    if (gs.state === 'generating') {
+      setGenerating(true);
+      showGeneratingUI('다른 분이 대진표를 생성 중이에요. 결과를 함께 기다려봐요! 🎾');
+      startGenPolling([]);
+    }
+  } catch(e) {}
+
+  // 6. If we have rounds, show scoreboard
   if (ROUNDS.length > 0) {
     const now = new Date();
     const dow = ['일','월','화','수','목','금','토'][now.getDay()];

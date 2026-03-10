@@ -1613,49 +1613,43 @@ def tennis_save_bracket():
     return jsonify({"ok": True, "ts": store["ts"]})
 
 
-# ── 대진표 AI 생성 (Claude CLI) ────────────────
-@app.route('/api/tennis/generate', methods=['POST'])
-@limiter.limit("10 per hour")
-def tennis_generate():
-    """희망사항을 반영한 AI 대진표 생성 (claude CLI 사용)"""
-    import subprocess
-    import re as _re
+# ── 대진표 AI 생성 (백그라운드 + 상태 동기화) ────────────────
+import threading as _threading
+import subprocess as _subprocess
+import re as _re
 
-    data = request.get_json()
-    players = data.get('players', [])
-    num_courts = data.get('numCourts', 2)
-    duration = data.get('duration', 20)
-    start_time = data.get('startTime', '19:00')
-    end_time = data.get('endTime', '22:00')
-    warmup = data.get('warmup', 20)
-    wish = data.get('wish', '')
+_TENNIS_GENSTATUS_FILE = _os.path.join(_TENNIS_DIR, 'gen_status.json')
 
-    if len(players) < 4:
-        return jsonify({"ok": False, "error": "최소 4명 필요"}), 400
-    if not wish:
-        return jsonify({"ok": False, "error": "희망사항이 없으면 로컬 생성 사용"}), 400
-    if len(wish) > 50:
-        return jsonify({"ok": False, "error": "희망사항은 50자 이내로 입력해주세요"}), 400
 
-    # 시간 슬롯 계산
-    sh, sm = map(int, start_time.split(':'))
-    eh, em = map(int, end_time.split(':'))
-    total_min = (eh * 60 + em) - (sh * 60 + sm) - warmup
-    num_rounds = total_min // duration
+def _get_gen_status():
+    status = _read_json(_TENNIS_GENSTATUS_FILE, {"state": "idle", "ts": 0})
+    # 15분 이상 지난 generating 상태는 자동 해제 (좀비 방지)
+    if status.get("state") == "generating" and status.get("ts", 0) > 0:
+        if int(_time.time() * 1000) - status["ts"] > 15 * 60 * 1000:
+            status = {"state": "idle", "ts": 0}
+            _write_json(_TENNIS_GENSTATUS_FILE, status)
+    return status
 
-    start_min = sh * 60 + sm + warmup
-    time_slots = []
-    for i in range(num_rounds):
-        fr = start_min + i * duration
-        to = fr + duration
-        fh, fm_ = divmod(fr, 60)
-        th, tm_ = divmod(to, 60)
-        time_slots.append(f"{fh:02d}:{fm_:02d}~{th:02d}:{tm_:02d}")
 
+def _set_gen_status(state, **kwargs):
+    status = {"state": state, "ts": int(_time.time() * 1000), **kwargs}
+    _write_json(_TENNIS_GENSTATUS_FILE, status)
+
+
+@app.route('/api/tennis/gen-status', methods=['GET'])
+@limiter.exempt
+def tennis_gen_status():
+    """AI 생성 진행 상태 조회 (polling용)"""
+    return jsonify(_get_gen_status())
+
+
+def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish):
+    """백그라운드 스레드에서 Claude CLI 실행"""
     player_info = "\n".join(
         f"- {p['name']} (성별: {'남' if p['gender']=='M' else '여'}, NTRP: {p.get('ntrp', 3.0)})"
         for p in players
     )
+    num_rounds = len(time_slots)
 
     prompt = f"""테니스 복식 대진표를 생성해주세요.
 
@@ -1701,9 +1695,7 @@ def tennis_generate():
     try:
         _claude_bin = "/opt/homebrew/bin/claude"
         _env = {**_os.environ, "TERM": "dumb"}
-        # gunicorn PATH에 homebrew가 없으므로 추가
         _env["PATH"] = "/opt/homebrew/bin:" + _env.get("PATH", "/usr/bin:/bin")
-        # dotenv로 로드된 토큰이 os.environ에 없을 수 있으므로 .env에서 직접 읽기
         if "CLAUDE_CODE_OAUTH_TOKEN" not in _env:
             try:
                 with open(_os.path.join(str(BASE_DIR), ".env")) as _ef:
@@ -1713,45 +1705,113 @@ def tennis_generate():
             except Exception:
                 pass
 
-        result = subprocess.run(
+        result = _subprocess.run(
             [_claude_bin, "-p", prompt, "--output-format", "text"],
-            capture_output=True, text=True, timeout=900,  # 15분
+            capture_output=True, text=True, timeout=900,
             env=_env,
         )
 
         if result.returncode != 0:
-            return jsonify({"ok": False, "error": f"Claude CLI 오류: {result.stderr[:200]}"}), 500
+            _set_gen_status("error", error=f"Claude CLI 오류: {result.stderr[:200]}")
+            return
 
         text = result.stdout.strip()
 
-        # Parse JSON from response
+        # Parse JSON
         json_match = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, _re.DOTALL)
         if json_match:
             bracket_data = json.loads(json_match.group(1))
         elif text.startswith('{'):
             bracket_data = json.loads(text)
         else:
-            # Try finding JSON object anywhere in text
             brace_match = _re.search(r'\{[\s\S]*"rounds"[\s\S]*\}', text)
             if brace_match:
                 bracket_data = json.loads(brace_match.group(0))
             else:
-                return jsonify({"ok": False, "error": "AI 응답에서 JSON을 찾을 수 없습니다"}), 500
+                _set_gen_status("error", error="AI 응답에서 JSON을 찾을 수 없습니다")
+                return
 
         rounds = bracket_data.get("rounds", [])
         if not rounds:
-            return jsonify({"ok": False, "error": "대진표가 비어있습니다"}), 500
+            _set_gen_status("error", error="대진표가 비어있습니다")
+            return
 
-        return jsonify({"ok": True, "rounds": rounds})
+        # 성공: 대진표를 bracket에 저장 + 스코어 초기화
+        emojiPool = ['💪','⚡','👑','🔥','🌟','🎯','⚔️','🌸','🌺','💎','🍢','🐣','🌹','🎀','🦊','🐱','🍀','⭐','🌙','🎵']
+        emojis = {}
+        for i, p in enumerate(players):
+            emojis[p['name']] = emojiPool[i % len(emojiPool)]
 
-    except subprocess.TimeoutExpired:
-        return jsonify({"ok": False, "error": "AI 생성 시간 초과 (15분)"}), 500
+        import datetime
+        _write_json(_TENNIS_BRACKET_FILE, {
+            "rounds": rounds, "emojis": emojis,
+            "date": datetime.date.today().strftime("%a %b %d %Y"),
+            "ts": int(_time.time() * 1000),
+        })
+        _write_json(_TENNIS_SCORES_FILE, {"scores": {}, "ts": int(_time.time() * 1000)})
+        _set_gen_status("done", rounds=rounds, emojis=emojis)
+
+    except _subprocess.TimeoutExpired:
+        _set_gen_status("error", error="AI 생성 시간 초과 (15분)")
     except json.JSONDecodeError as e:
-        return jsonify({"ok": False, "error": f"JSON 파싱 실패: {str(e)[:100]}"}), 500
+        _set_gen_status("error", error=f"JSON 파싱 실패: {str(e)[:100]}")
     except FileNotFoundError:
-        return jsonify({"ok": False, "error": "Claude CLI가 설치되어 있지 않습니다"}), 500
+        _set_gen_status("error", error="Claude CLI가 설치되어 있지 않습니다")
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+        _set_gen_status("error", error=str(e)[:200])
+
+
+@app.route('/api/tennis/generate', methods=['POST'])
+@limiter.limit("10 per hour")
+def tennis_generate():
+    """대진표 AI 생성 요청 (백그라운드 실행, 즉시 응답)"""
+    data = request.get_json()
+    players = data.get('players', [])
+    num_courts = data.get('numCourts', 2)
+    duration = data.get('duration', 20)
+    start_time = data.get('startTime', '19:00')
+    end_time = data.get('endTime', '22:00')
+    warmup = data.get('warmup', 20)
+    wish = data.get('wish', '')
+
+    if len(players) < 4:
+        return jsonify({"ok": False, "error": "최소 4명 필요"}), 400
+    if not wish:
+        return jsonify({"ok": False, "error": "희망사항이 없으면 로컬 생성 사용"}), 400
+    if len(wish) > 50:
+        return jsonify({"ok": False, "error": "희망사항은 50자 이내로 입력해주세요"}), 400
+
+    # 이미 생성 중인지 확인
+    cur = _get_gen_status()
+    if cur.get("state") == "generating":
+        return jsonify({"ok": False, "error": "다른 분이 대진표를 생성 중이에요. 결과를 함께 기다려봐요!"}), 409
+
+    # 시간 슬롯 계산
+    sh, sm = map(int, start_time.split(':'))
+    eh, em = map(int, end_time.split(':'))
+    total_min = (eh * 60 + em) - (sh * 60 + sm) - warmup
+    num_rounds = total_min // duration
+
+    start_min = sh * 60 + sm + warmup
+    time_slots = []
+    for i in range(num_rounds):
+        fr = start_min + i * duration
+        to = fr + duration
+        fh, fm_ = divmod(fr, 60)
+        th, tm_ = divmod(to, 60)
+        time_slots.append(f"{fh:02d}:{fm_:02d}~{th:02d}:{tm_:02d}")
+
+    # 상태를 "generating"으로 설정 후 백그라운드 실행
+    _set_gen_status("generating")
+    t = _threading.Thread(
+        target=_run_claude_generate,
+        args=(players, num_courts, duration, warmup, time_slots, wish),
+        daemon=True,
+    )
+    t.start()
+
+    # 즉시 202 응답 (Cloudflare 타임아웃 회피)
+    return jsonify({"ok": True, "status": "generating"}), 202
 
 
 if __name__ == '__main__':
