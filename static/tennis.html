@@ -611,8 +611,15 @@ function startGenPolling(players) {
         _genPollTimer = null;
         setGenerating(false);
 
+        // 2차 시도로 완료된 경우 안내
+        if (status.note) {
+          const area = document.getElementById('preview-area');
+          area.innerHTML = `<div class="gen-card" style="text-align:center;padding:20px;background:#fff8e1;border:1px solid #ffe082;border-radius:12px;margin-bottom:12px">
+            <div style="font-size:0.9em;color:#f57f17">ℹ️ ${status.note}</div>
+          </div>`;
+        }
+
         // 대진표가 서버에 저장되었으므로 bracket polling이 자동 감지
-        // 스코어보드 탭으로 전환
         switchTab('scoreboard');
         await loadBracket();
         return;
@@ -631,6 +638,26 @@ function startGenPolling(players) {
         _genPollTimer = null;
         setGenerating(false);
         return;
+      }
+
+      // 서버에서 보내는 메시지가 있으면 표시 (2차 시도 안내 등)
+      if (status.message) {
+        const msgEl = document.querySelector('#preview-area .gen-card > div:nth-child(2)');
+        if (msgEl) msgEl.innerHTML = status.message.replace(/\n/g, '<br>');
+      }
+
+      // attempt 표시
+      const attemptEl = document.getElementById('gen-attempt');
+      if (status.attempt && status.attempt > 1 && !attemptEl) {
+        const area = document.getElementById('preview-area');
+        const card = area.querySelector('.gen-card');
+        if (card) {
+          const badge = document.createElement('div');
+          badge.id = 'gen-attempt';
+          badge.style.cssText = 'margin-top:8px;font-size:0.8em;color:#e65100;font-weight:600';
+          badge.textContent = `🔄 ${status.attempt}차 시도 중`;
+          card.appendChild(badge);
+        }
       }
 
       // 경과 시간 표시

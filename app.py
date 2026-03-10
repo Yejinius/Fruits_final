@@ -1643,81 +1643,70 @@ def tennis_gen_status():
     return jsonify(_get_gen_status())
 
 
-def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish):
-    """백그라운드 스레드에서 Claude CLI 실행"""
-    player_info = "\n".join(
-        f"- {p['name']} (성별: {'남' if p['gender']=='M' else '여'}, NTRP: {p.get('ntrp', 3.0)})"
+def _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=False):
+    """대진표 생성 프롬프트 구성. relaxed=True면 희망사항 완화 버전."""
+    player_info = " ".join(
+        f"{p['name']}({'M' if p['gender']=='M' else 'F'},{p.get('ntrp', 3.0)})"
         for p in players
     )
     num_rounds = len(time_slots)
+    slots_str = ", ".join(time_slots)
 
-    prompt = f"""테니스 복식 대진표를 생성해주세요.
-
-## 참가자 ({len(players)}명)
-{player_info}
-
-## 경기 설정
-- 코트 수: {num_courts}
-- 라운드 수: {num_rounds}
-- 경기 시간: {duration}분
-- 타임슬롯: {', '.join(time_slots)}
-
-## 규칙
-1. 각 라운드에 {num_courts}개 코트 × 4명 = {num_courts * 4}명 경기, 나머지는 휴식
-2. 복식 유형: 혼복(남2+여2), 남복(남4), 여복(여4) — 가능한 한 혼복 우선
-3. 모든 참가자의 경기 수가 균등해야 함 (±1 이내)
-4. 최대 2라운드 연속 출전 가능 (3연속 금지)
-5. 같은 파트너 조합 반복 최소화
-
-## 희망사항 (반드시 반영!)
-{wish}
-
-## 출력 형식 (반드시 이 JSON 형식만 출력! 설명 없이!)
-```json
-{{
-  "rounds": [
-    {{
-      "num": 1,
-      "time": "{time_slots[0] if time_slots else '19:20~19:40'}",
-      "courts": [
-        {{
-          "type": "혼복",
-          "team1": ["이름1", "이름2"],
-          "team2": ["이름3", "이름4"]
-        }}
-      ],
-      "rest": ["이름5", "이름6"]
-    }}
-  ]
-}}
-```"""
-
-    try:
-        _claude_bin = "/opt/homebrew/bin/claude"
-        _env = {**_os.environ, "TERM": "dumb"}
-        _env["PATH"] = "/opt/homebrew/bin:" + _env.get("PATH", "/usr/bin:/bin")
-        if "CLAUDE_CODE_OAUTH_TOKEN" not in _env:
-            try:
-                with open(_os.path.join(str(BASE_DIR), ".env")) as _ef:
-                    for _line in _ef:
-                        if _line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
-                            _env["CLAUDE_CODE_OAUTH_TOKEN"] = _line.split("=", 1)[1].strip()
-            except Exception:
-                pass
-
-        result = _subprocess.run(
-            [_claude_bin, "-p", prompt, "--output-format", "text"],
-            capture_output=True, text=True, timeout=900,
-            env=_env,
+    wish_section = wish
+    if relaxed:
+        wish_section = (
+            f"아래 희망사항을 가능한 범위에서만 반영해줘. "
+            f"핵심 규칙(균등배분, 3연속금지, 혼복우선)이 더 중요하고, "
+            f"희망사항이 불가능하면 부분적으로만 반영하거나 포기해도 돼. "
+            f"완벽하지 않아도 괜찮아.\n{wish}"
         )
 
-        if result.returncode != 0:
-            _set_gen_status("error", error=f"Claude CLI 오류: {result.stderr[:200]}")
-            return
+    return (
+        f"{len(players)}명 복식 대진표 JSON만 출력. 설명 금지.\n"
+        f"참가자: {player_info}\n"
+        f"{num_courts}코트 {num_rounds}라운드 {duration}분. 타임슬롯: {slots_str}\n"
+        f"라운드당 {num_courts * 4}명경기 나머지휴식. 혼복우선. 균등±1. 3연속금지. 파트너반복최소화.\n"
+        f"희망: {wish_section}\n"
+        f'{{"rounds":[{{"num":1,"time":"{time_slots[0] if time_slots else "19:20~19:40"}",'
+        f'"courts":[{{"type":"혼복","team1":["a","b"],"team2":["c","d"]}}],'
+        f'"rest":["e","f"]}}]}}'
+    )
 
-        text = result.stdout.strip()
 
-        # Parse JSON
+def _call_claude(prompt, timeout_sec=300, model="sonnet"):
+    """Claude CLI 호출. 성공 시 rounds list 반환, 실패 시 None + error str."""
+    _claude_bin = "/opt/homebrew/bin/claude"
+    _env = {**_os.environ, "TERM": "dumb"}
+    _env["PATH"] = "/opt/homebrew/bin:" + _env.get("PATH", "/usr/bin:/bin")
+    if "CLAUDE_CODE_OAUTH_TOKEN" not in _env:
+        try:
+            with open(_os.path.join(str(BASE_DIR), ".env")) as _ef:
+                for _line in _ef:
+                    if _line.startswith("CLAUDE_CODE_OAUTH_TOKEN="):
+                        _env["CLAUDE_CODE_OAUTH_TOKEN"] = _line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+
+    try:
+        result = _subprocess.run(
+            [_claude_bin, "-p", prompt, "--output-format", "text", "--model", model],
+            capture_output=True, text=True, timeout=timeout_sec,
+            env=_env,
+        )
+    except _subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "Claude CLI가 설치되어 있지 않습니다"
+    except Exception as e:
+        return None, str(e)[:200]
+
+    if result.returncode != 0:
+        return None, f"Claude CLI 오류: {result.stderr[:200]}"
+
+    text = result.stdout.strip()
+
+    # Parse JSON
+    try:
         json_match = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, _re.DOTALL)
         if json_match:
             bracket_data = json.loads(json_match.group(1))
@@ -1728,37 +1717,70 @@ def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish
             if brace_match:
                 bracket_data = json.loads(brace_match.group(0))
             else:
-                _set_gen_status("error", error="AI 응답에서 JSON을 찾을 수 없습니다")
-                return
+                return None, "AI 응답에서 JSON을 찾을 수 없습니다"
 
         rounds = bracket_data.get("rounds", [])
         if not rounds:
-            _set_gen_status("error", error="대진표가 비어있습니다")
-            return
-
-        # 성공: 대진표를 bracket에 저장 + 스코어 초기화
-        emojiPool = ['💪','⚡','👑','🔥','🌟','🎯','⚔️','🌸','🌺','💎','🍢','🐣','🌹','🎀','🦊','🐱','🍀','⭐','🌙','🎵']
-        emojis = {}
-        for i, p in enumerate(players):
-            emojis[p['name']] = emojiPool[i % len(emojiPool)]
-
-        import datetime
-        _write_json(_TENNIS_BRACKET_FILE, {
-            "rounds": rounds, "emojis": emojis,
-            "date": datetime.date.today().strftime("%a %b %d %Y"),
-            "ts": int(_time.time() * 1000),
-        })
-        _write_json(_TENNIS_SCORES_FILE, {"scores": {}, "ts": int(_time.time() * 1000)})
-        _set_gen_status("done", rounds=rounds, emojis=emojis)
-
-    except _subprocess.TimeoutExpired:
-        _set_gen_status("error", error="AI 생성 시간 초과 (15분)")
+            return None, "대진표가 비어있습니다"
+        return rounds, None
     except json.JSONDecodeError as e:
-        _set_gen_status("error", error=f"JSON 파싱 실패: {str(e)[:100]}")
-    except FileNotFoundError:
-        _set_gen_status("error", error="Claude CLI가 설치되어 있지 않습니다")
-    except Exception as e:
-        _set_gen_status("error", error=str(e)[:200])
+        return None, f"JSON 파싱 실패: {str(e)[:100]}"
+
+
+def _save_bracket_result(rounds, players):
+    """생성된 대진표를 저장하고 스코어 초기화."""
+    import datetime
+    emojiPool = ['💪','⚡','👑','🔥','🌟','🎯','⚔️','🌸','🌺','💎','🍢','🐣','🌹','🎀','🦊','🐱','🍀','⭐','🌙','🎵']
+    emojis = {}
+    for i, p in enumerate(players):
+        emojis[p['name']] = emojiPool[i % len(emojiPool)]
+
+    _write_json(_TENNIS_BRACKET_FILE, {
+        "rounds": rounds, "emojis": emojis,
+        "date": datetime.date.today().strftime("%a %b %d %Y"),
+        "ts": int(_time.time() * 1000),
+    })
+    _write_json(_TENNIS_SCORES_FILE, {"scores": {}, "ts": int(_time.time() * 1000)})
+    return emojis
+
+
+def _run_claude_generate(players, num_courts, duration, warmup, time_slots, wish):
+    """백그라운드 2단계 생성: 1차 원본 → 실패 시 2차 완화 프롬프트."""
+    ATTEMPT_TIMEOUT = 300  # 5분
+
+    # ── 1차 시도: 희망사항 원본 그대로 ──
+    _set_gen_status("generating", attempt=1, message="AI가 희망사항을 반영하여 대진표를 생성하고 있습니다...")
+    prompt1 = _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=False)
+    rounds, err = _call_claude(prompt1, timeout_sec=ATTEMPT_TIMEOUT, model="sonnet")
+
+    if rounds:
+        emojis = _save_bracket_result(rounds, players)
+        _set_gen_status("done", rounds=rounds, emojis=emojis, attempt=1)
+        return
+
+    # ── 1차 실패 → 2차 시도 안내 ──
+    if err == "timeout":
+        retry_reason = "희망사항이 복잡하여 5분 내에 완료되지 못했습니다"
+    else:
+        retry_reason = err
+
+    _set_gen_status("generating", attempt=2,
+                    message=f"⚠️ 1차 시도 실패: {retry_reason}\n"
+                            f"핵심 규칙을 우선하고 희망사항을 유연하게 적용하여 재시도 중...")
+
+    # ── 2차 시도: 완화된 프롬프트 ──
+    prompt2 = _build_prompt(players, num_courts, duration, time_slots, wish, relaxed=True)
+    rounds2, err2 = _call_claude(prompt2, timeout_sec=ATTEMPT_TIMEOUT, model="sonnet")
+
+    if rounds2:
+        emojis = _save_bracket_result(rounds2, players)
+        _set_gen_status("done", rounds=rounds2, emojis=emojis, attempt=2,
+                        note="희망사항을 유연하게 적용한 결과입니다")
+        return
+
+    # ── 2차도 실패 ──
+    final_err = f"2차 시도도 실패: {err2}" if err2 != "timeout" else "2차 시도도 시간 초과 (각 5분)"
+    _set_gen_status("error", error=final_err)
 
 
 @app.route('/api/tennis/generate', methods=['POST'])
