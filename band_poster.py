@@ -2,8 +2,10 @@
 네이버 밴드 자동 포스팅 (Selenium)
 - 상시 실행 Chrome (remote debugging port) 방식으로 세션 유지
 - DB 상품 정보로 홍보 게시물 + 이미지 첨부
+- 자동 네이버 로그인 + SMS 인증 (imsg CLI)
 """
 import json
+import re
 import time
 import os
 import stat
@@ -27,6 +29,12 @@ from models import get_session, Product, Category, init_db, log_event
 # Chrome 프로필 저장 경로 (로그인 세션 유지)
 CHROME_PROFILE_DIR = DATA_DIR / "chrome_profile"
 REMOTE_DEBUG_PORT = 9222
+
+# 네이버 자격증명 파일 (.secrets/ — git에서 제외)
+NAVER_CREDENTIALS_FILE = DATA_DIR.parent / ".secrets" / "naver_credentials.json"
+
+# imsg CLI 경로 (OpenClaw Mac에서 SMS 읽기용)
+IMSG_BIN = "/opt/homebrew/bin/imsg"
 
 
 def get_product_url(article_idx):
@@ -248,7 +256,7 @@ class BandPoster:
         self.close()
 
     def check_login(self, band_url=None):
-        """로그인 상태 확인 (밴드 페이지 접근 + 글쓰기 버튼 검증)"""
+        """로그인 상태 확인 — 실패 시 자동 로그인 시도"""
         # persistent Chrome이 아닌 경우에만 쿠키 파일 로드
         if not self._attached and self.COOKIE_FILE.exists():
             self._load_cookies()
@@ -259,22 +267,281 @@ class BandPoster:
         self._dismiss_alert()
 
         current_url = self.driver.current_url
+        needs_login = False
+
         if "auth.band.us" in current_url or "login" in current_url:
-            print("  로그인이 필요합니다. band-login을 먼저 실행하세요.")
+            needs_login = True
+        else:
+            try:
+                self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost, a.uButtonWrite")
+                print("  로그인 상태 확인 OK")
+                return True
+            except Exception:
+                page_source = self.driver.page_source
+                if "로그인" in page_source or "회원가입" in page_source:
+                    needs_login = True
+                else:
+                    print("  로그인 상태 확인 OK (글쓰기 버튼 미발견, 페이지 로드 지연 가능)")
+                    return True
+
+        if needs_login:
+            print("  세션 만료 감지 → 자동 로그인 시도...")
+            if self._auto_login():
+                # 로그인 성공 후 밴드 페이지 재확인
+                self.driver.get(test_url)
+                time.sleep(5)
+                self._dismiss_alert()
+                try:
+                    self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost, a.uButtonWrite")
+                    print("  자동 로그인 성공! 글쓰기 권한 확인 OK")
+                    self._save_cookies()
+                    return True
+                except Exception:
+                    print("  자동 로그인 후 글쓰기 권한 미확인")
+                    return False
+            else:
+                print("  자동 로그인 실패. 수동 band-login이 필요합니다.")
+                self._send_login_failure_alert()
+                return False
+
+    # ── 자동 로그인 ──────────────────────────────────────
+
+    @staticmethod
+    def _load_naver_credentials():
+        """저장된 네이버 자격증명 로드"""
+        if not NAVER_CREDENTIALS_FILE.exists():
+            print("  네이버 자격증명 파일 없음:", NAVER_CREDENTIALS_FILE)
+            return None, None
+        try:
+            with open(NAVER_CREDENTIALS_FILE) as f:
+                creds = json.load(f)
+            return creds.get("id"), creds.get("pw")
+        except Exception as e:
+            print(f"  자격증명 로드 실패: {e}")
+            return None, None
+
+    @staticmethod
+    def _read_sms_code(timeout=120):
+        """imsg CLI로 최근 SMS에서 네이버 인증번호 추출 (최대 timeout초 대기)"""
+        if not os.path.exists(IMSG_BIN):
+            print(f"  imsg 미설치: {IMSG_BIN}")
+            return None
+
+        start = time.time()
+        checked_ids = set()
+        print(f"  SMS 인증번호 대기 중 (최대 {timeout}초)...")
+
+        while time.time() - start < timeout:
+            try:
+                # 최근 채팅 목록에서 네이버 관련 번호 찾기
+                result = subprocess.run(
+                    [IMSG_BIN, "chats", "--limit", "30", "--json"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode != 0:
+                    time.sleep(5)
+                    continue
+
+                for line in result.stdout.strip().split("\n"):
+                    if not line.strip():
+                        continue
+                    try:
+                        chat = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    chat_id = chat.get("id")
+                    identifier = chat.get("identifier", "")
+                    # 네이버 인증 문자 발신번호: 1588-3820, 15883820, NAVER 등
+                    if not any(x in identifier for x in ["1588", "3820", "NAVER", "naver"]):
+                        continue
+
+                    # 이 채팅의 최근 메시지 확인
+                    hist = subprocess.run(
+                        [IMSG_BIN, "history", "--chat-id", str(chat_id), "--limit", "3", "--json"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if hist.returncode != 0:
+                        continue
+
+                    for msg_line in hist.stdout.strip().split("\n"):
+                        if not msg_line.strip():
+                            continue
+                        try:
+                            msg = json.loads(msg_line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        msg_id = msg.get("id", 0)
+                        if msg_id in checked_ids:
+                            continue
+                        checked_ids.add(msg_id)
+
+                        text = msg.get("text", "")
+                        # 인증번호 패턴: 6자리 숫자
+                        match = re.search(r'인증번호[^\d]*(\d{6})', text)
+                        if not match:
+                            match = re.search(r'(\d{6})', text)
+                        if match:
+                            code = match.group(1)
+                            # 최근 3분 이내 메시지만 유효
+                            msg_date = msg.get("date", "")
+                            print(f"  SMS 인증번호 수신: {code}")
+                            return code
+
+            except subprocess.TimeoutExpired:
+                pass
+            except Exception as e:
+                print(f"  SMS 읽기 오류: {e}")
+
+            time.sleep(5)
+
+        print("  SMS 인증번호 대기 타임아웃")
+        return None
+
+    def _auto_login(self):
+        """네이버 자동 로그인 (저장된 ID/PW + SMS 인증)"""
+        naver_id, naver_pw = self._load_naver_credentials()
+        if not naver_id or not naver_pw:
             return False
 
-        # 글쓰기 버튼 존재 확인
         try:
-            self.driver.find_element(By.CSS_SELECTOR, "button._btnWritePost, a.uButtonWrite")
-            print("  로그인 상태 확인 OK")
-            return True
-        except Exception:
-            page_source = self.driver.page_source
-            if "로그인" in page_source or "회원가입" in page_source:
-                print("  세션이 만료되었습니다. band-login을 다시 실행하세요.")
+            print("  네이버 로그인 페이지 이동...")
+            self.driver.get("https://nid.naver.com/nidlogin.login")
+            time.sleep(3)
+
+            # "로그인 상태 유지" 체크박스
+            try:
+                keep_login = self.driver.find_element(By.CSS_SELECTOR, "#keep, .keep_check, label[for='keep']")
+                if not keep_login.is_selected():
+                    keep_login.click()
+                    print("  '로그인 상태 유지' 체크")
+                    time.sleep(0.5)
+            except Exception:
+                # 체크박스를 못 찾아도 계속 진행
+                pass
+
+            # ID/PW 입력 (클립보드 방식 — 캡차 회피)
+            id_field = self.driver.find_element(By.CSS_SELECTOR, "#id")
+            pw_field = self.driver.find_element(By.CSS_SELECTOR, "#pw")
+
+            # JavaScript로 직접 값 설정 (send_keys 대신 — 봇 탐지 회피)
+            self.driver.execute_script("""
+                var el = arguments[0];
+                el.focus();
+                el.value = arguments[1];
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+            """, id_field, naver_id)
+            time.sleep(0.5)
+
+            self.driver.execute_script("""
+                var el = arguments[0];
+                el.focus();
+                el.value = arguments[1];
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+            """, pw_field, naver_pw)
+            time.sleep(0.5)
+
+            # 로그인 버튼 클릭
+            login_btn = self.driver.find_element(By.CSS_SELECTOR, "#log\\.login, .btn_login, button[type='submit']")
+            login_btn.click()
+            print("  로그인 버튼 클릭")
+            time.sleep(5)
+
+            current_url = self.driver.current_url
+
+            # 캡차 감지
+            if "captcha" in current_url.lower() or "보안문자" in self.driver.page_source:
+                print("  ⚠️ 캡차 감지됨 — 자동 로그인 불가")
+                self._send_login_failure_alert("캡차가 필요합니다. 수동 로그인 필요.")
                 return False
-            print("  로그인 상태 확인 OK (글쓰기 버튼 미발견, 페이지 로드 지연 가능)")
-            return True
+
+            # SMS 인증 화면 감지
+            page_source = self.driver.page_source
+            if "인증번호" in page_source or "본인확인" in page_source or "deviceConfirm" in current_url:
+                print("  SMS 인증 요청 감지")
+
+                # 인증번호 요청 버튼 클릭 (있다면)
+                try:
+                    send_btn = self.driver.find_element(
+                        By.XPATH, "//button[contains(text(), '인증번호') or contains(text(), '전송')]"
+                    )
+                    send_btn.click()
+                    print("  인증번호 전송 버튼 클릭")
+                    time.sleep(3)
+                except Exception:
+                    pass
+
+                # imsg로 SMS 인증번호 읽기
+                code = self._read_sms_code(timeout=120)
+                if not code:
+                    self._send_login_failure_alert("SMS 인증번호를 수신하지 못했습니다.")
+                    return False
+
+                # 인증번호 입력
+                try:
+                    code_input = self.driver.find_element(
+                        By.CSS_SELECTOR, "input[type='tel'], input[type='number'], input.input_text, #otp"
+                    )
+                    code_input.clear()
+                    code_input.send_keys(code)
+                    time.sleep(0.5)
+
+                    # 확인 버튼 클릭
+                    confirm_btn = self.driver.find_element(
+                        By.XPATH, "//button[contains(text(), '확인') or contains(text(), '인증')]"
+                    )
+                    confirm_btn.click()
+                    print("  인증번호 입력 완료")
+                    time.sleep(5)
+                except Exception as e:
+                    print(f"  인증번호 입력 실패: {e}")
+                    return False
+
+            # 로그인 성공 확인
+            current_url = self.driver.current_url
+            if "nid.naver.com" not in current_url or "login" not in current_url:
+                print("  네이버 로그인 성공!")
+
+                # 밴드로 이동하여 세션 연동 확인
+                self.driver.get("https://auth.band.us/login_page?next_url=https://band.us")
+                time.sleep(3)
+
+                # "네이버로 로그인" 버튼 클릭
+                try:
+                    naver_login_btn = self.driver.find_element(
+                        By.CSS_SELECTOR, "a.uBtn.-naver, a[href*='naver'], .naverLogin"
+                    )
+                    naver_login_btn.click()
+                    print("  밴드 → 네이버 SSO 연동 중...")
+                    time.sleep(5)
+                except Exception:
+                    # 이미 로그인되어 있으면 자동 리다이렉트됨
+                    pass
+
+                return True
+            else:
+                print("  네이버 로그인 실패 (로그인 페이지 유지)")
+                return False
+
+        except Exception as e:
+            print(f"  자동 로그인 오류: {e}")
+            return False
+
+    @staticmethod
+    def _send_login_failure_alert(detail=""):
+        """로그인 실패 시 텔레그램 알림 발송"""
+        try:
+            from telegram_bot import send_alert
+            msg = "🔑 밴드 자동 로그인 실패"
+            if detail:
+                msg += f"\n{detail}"
+            msg += "\n수동 band-login이 필요합니다."
+            send_alert(msg)
+        except Exception:
+            pass
 
     # ── 콘텐츠 생성 ──────────────────────────────────────
 
@@ -472,9 +739,13 @@ class BandPoster:
                 log_event('error', 'band', f"게시 후 alert: {alert_text}", detail=f"band_url={band_url}")
                 return None
 
-            # 6. 게시 후 URL 캡처
+            # 6. 게시 후 URL 캡처 + 쿠키 백업
             post_url = self.driver.current_url
             print(f"  게시물 작성 완료! URL: {post_url}")
+            try:
+                self._save_cookies()
+            except Exception:
+                pass
             return post_url
 
         except UnexpectedAlertPresentException as e:
